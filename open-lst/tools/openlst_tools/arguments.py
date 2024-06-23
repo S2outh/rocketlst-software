@@ -28,14 +28,14 @@ def hwid_type(hwid_str):
     return hwid
 
 
-def aes_key_option(key: bytes, length=16):
+def aes_key_option(hex_key: str, length=16):
     """Convert an AES-128 key hex string to a byte string from argparse args"""
     try:
-        key = key
+        hex_key = binascii.unhexlify(hex_key)
     except TypeError:
         raise argparse.ArgumentTypeError(
             "AES keys must be %d byte hex strings" % length)
-    if len(key) != length:
+    if len(hex_key) != length:
         raise argparse.ArgumentTypeError(
             "AES keys must be %d byte hex strings" % length)
-    return key
+    return hex_key

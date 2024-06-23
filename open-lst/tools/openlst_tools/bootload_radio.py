@@ -76,7 +76,7 @@ def main():
         signature = args.signature
     elif args.signature_file:
         signature = aes_key_option(
-            args.signature_file.read().strip(),
+            hexlify(args.signature_file.read().strip()),
             length=FLASH_SIGNATURE_LEN)
     if len(signature) != FLASH_SIGNATURE_LEN:
         raise ValueError("signature length is incorrect")
