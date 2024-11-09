@@ -81,7 +81,7 @@ def main():
     con = get_handler(args.hwid, args.rx_path, args.tx_path)
     i=0
     for i in range(1000000):
-        resp = con.send_cmd(f"rel ascii CQ_CQ_CQ_DE_DO4RKT_DO4RKT_DO4RKT_RADIO_TESTING_RADIO_TESTING_RADIO_TESTING_DO_NOT_RESPOND_DO_NOT_RESPOND_{i};", timeout=0.02, retries=0)
+        resp = con.send_cmd(f"rel ascii CQ_CQ_CQ_DE_DO4RKT_DO4RKT_DO4RKT_RADIO_TESTING_RADIO_TESTING_RADIO_TESTING_DO_NOT_RESPOND_DO_NOT_RESPOND_{i};", timeout=0.1, retries=0)
         i+=1
 
 if __name__ == '__main__':

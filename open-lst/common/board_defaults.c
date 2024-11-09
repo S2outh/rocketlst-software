@@ -89,7 +89,7 @@ uint8_t board_apply_radio_settings(uint8_t mode) {
 	MDMCFG2 =   MDMCFG2_DEM_DCFILT_OFF_ENABLE |
 	            MDMCFG2_MOD_FORMAT_GFSK |
 	            MDMCFG2_MANCHESTER_DISABLED |
-	            MDMCFG2_SYNC_MODE_30_32;
+	            MDMCFG2_SYNC_MODE_15_16;
 	MDMCFG1 =   MDMCFG1_FEC_ENABLED |
 	            MDMCFG1_NUM_PREAMBLE_4 |
 	            RF_CHANSPC_E << MDMCFG1_CHANSPC_E_SHIFT;
@@ -128,9 +128,9 @@ uint8_t board_apply_radio_settings(uint8_t mode) {
 	            FOCCFG_FOC_POST_K_K_2 |
 				// Changed to fix inreliable transmission (~80% success) for high data rates
 	            //FOCCFG_FOC_LIMIT_NO_COMPENSATE; // Seems fine
-	            //FOCCFG_FOC_LIMIT_BW_CHAN_8; // SmartRFM Default
+	            FOCCFG_FOC_LIMIT_BW_CHAN_8; // SmartRFM Default, doppler shift should be fine (5khz offset should work)
 	            //FOCCFG_FOC_LIMIT_BW_CHAN_4; // Seems fine
-	            FOCCFG_FOC_LIMIT_BW_CHAN_2; // Original, too inreliable
+	            //FOCCFG_FOC_LIMIT_BW_CHAN_2; // Original, too inreliable
 	// Bit synchronization for data rate is not enabled,
 	// so the gain settings probably don't matter. These
 	// were recommended by RF Studio

@@ -206,16 +206,22 @@
 //#define RF_FREQ2 0x10 // 439.715
 //#define RF_FREQ2 0x10 // 437.123
 #define RF_FREQ2 0x10 // 434.200
+//#define RF_FREQ2 0x10 // 434.205
+//#define RF_FREQ2 0x10 // 434.210
 #endif
 #ifndef RF_FREQ1
 //#define RF_FREQ1 0x49 // 439.715
 //#define RF_FREQ1 0x30 // 437.123
 #define RF_FREQ1 0x14 // 434.200
+//#define RF_FREQ1 0x14 // 434.205
+//#define RF_FREQ1 0x14 // 434.210
 #endif
 #ifndef RF_FREQ0
 //#define RF_FREQ0 0x26 // 439.715
 //#define RF_FREQ0 0x93 // 437.123
 #define RF_FREQ0 0xDC // 434.200
+//#define RF_FREQ0 0xE8 // 434.205
+//#define RF_FREQ0 0xF4 // 434.210
 #endif
 // The defaults here are the CC1110 hard defaults
 #ifndef RF_SYNC_WORD1
@@ -247,16 +253,16 @@
 //#define RF_DRATE_E   8 // 10k baud
 //#define RF_DRATE_E   9 // 20k baud
 //#define RF_DRATE_E   10 // 40k baud
-//#define RF_DRATE_E   10 // 50k baud (49.953)
-#define RF_DRATE_E   13 // 250k baud
+#define RF_DRATE_E   10 // 50k baud (49.953)
+//#define RF_DRATE_E   13 // 250k baud
 #endif
 #ifndef RF_DRATE_M
 //#define RF_DRATE_M  32 // 7415 baud
 //#define RF_DRATE_M  132 // 10k baud
 //#define RF_DRATE_M  132 // 20k baud
 //#define RF_DRATE_M  132 // 40k baud
-//#define RF_DRATE_M  229 // 50k baud
-#define RF_DRATE_M  47 // 250k baud
+#define RF_DRATE_M  229 // 50k baud
+//#define RF_DRATE_M  47 // 250k baud
 #endif
 // 10kbaud
 #ifndef RF_DRATE_RANGING_E
