@@ -46,9 +46,12 @@ async fn main(spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     info!("Launching");
 
-    let mut can_config = CanConfigurator::new(p.FDCAN1, p.PC4, p.PC5, Irqs);
+    let mut can_config = CanConfigurator::new(p.FDCAN1, p.PA11, p.PA12, Irqs);
 
     can_config.set_bitrate(500_000); //to be ajusted
+    
+    // set standby pin to low
+    let _can_standby = Output::new(p.PA10, Level::Low, Speed::Low);
 
     spawner
         .spawn(test_can(can_config.into_normal_mode()))
