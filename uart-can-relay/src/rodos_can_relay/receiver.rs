@@ -5,19 +5,19 @@ use heapless::{FnvIndexMap, Vec};
 use super::common::*;
 
 struct RodosCanFramePart {
-    id: u32
+    id: u32,
     data: Vec<u8, 5>,
     seq_num: usize,
     seq_len: usize,
 }
 
 /// Module to send messages on a rodos can
-pub struct RodosCanReceiver<const NUMBER_OF_SOURCES: usize> {
+pub struct RodosCanReceiver<const NUMBER_OF_SOURCES: usize, const MAX_PACKET_LENGTH: usize> {
     receiver: BufferedCanReceiver,
-    partial_frames: FnvIndexMap<u32, Vec<u8, {u8::MAX as usize}>, NUMBER_OF_SOURCES>
+    partial_frames: FnvIndexMap<u32, Vec<u8, MAX_PACKET_LENGTH>, NUMBER_OF_SOURCES>
 }
 
-impl<const NUMBER_OF_SOURCES: usize> RodosCanReceiver<NUMBER_OF_SOURCES> {
+impl<const NUMBER_OF_SOURCES: usize, const MAX_PACKET_LENGTH: usize> RodosCanReceiver<NUMBER_OF_SOURCES, MAX_PACKET_LENGTH> {
     /// create a new instance from BufferedCanReceiver
     pub(super) fn new(receiver: BufferedCanReceiver) -> Self {
         RodosCanReceiver { receiver, partial_frames: FnvIndexMap::new() }
@@ -51,9 +51,13 @@ impl<const NUMBER_OF_SOURCES: usize> RodosCanReceiver<NUMBER_OF_SOURCES> {
             match self.receiver.receive().await {
                 Ok(envelope) => {
                     let frame_part = Self::decode(&envelope.frame).map_err(|e| RodosCanError::CouldNotDecode(e))?;
+                    // check if seq len is too long
+                    if frame_part.seq_len * 5 > MAX_PACKET_LENGTH {
+                        return Err(RodosCanError::MessageBufferFull);
+                    }
                     // add entry if it doesn't already exist
                     if !self.partial_frames.contains_key(&frame_part.id) {
-                        self.partial_frames.insert(frame_part.id, Vec::new()).map_err(|_| RodosCanError::BufferFull)?;
+                        self.partial_frames.insert(frame_part.id, Vec::new()).map_err(|_| RodosCanError::SourceBufferFull)?;
                     }
                     // if the seq_num is 0 this is the start of a new message. clear the buffer.
                     else if frame_part.seq_num == 0 {
@@ -68,7 +72,7 @@ impl<const NUMBER_OF_SOURCES: usize> RodosCanReceiver<NUMBER_OF_SOURCES> {
                     else if frame_part.seq_num < current_seq_num {
                         continue;
                     }
-                    // if the seq_num does not match the length clear the buffer and return an error
+                    // if the seq_num does not match the length return an error
                     else {
                         self.partial_frames[&frame_part.id] = Vec::new();
                         return Err(RodosCanError::FrameDropped);

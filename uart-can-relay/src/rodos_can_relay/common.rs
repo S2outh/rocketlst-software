@@ -29,6 +29,8 @@ pub enum RodosCanError {
     CouldNotDecode(RodosCanDecodeError),
     /// one of the message frames has been dropped
     FrameDropped,
-    /// the buffer for the messages is full
-    BufferFull
+    /// the map for different sources is full
+    SourceBufferFull,
+    /// the message buffer for this specific map is full
+    MessageBufferFull,
 }

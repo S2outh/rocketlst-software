@@ -73,10 +73,14 @@ impl<'d> RodosCanRelay<'d, Config> {
     }
     /// # Split the configurator into a configured sender and receiver instance
     /// 
-    /// The const parameter NUMBER_OF_SOURCES specifies the size of the buffer for
-    /// incoming can messages. One "source" is one device sending on one topic.
+    /// + The const parameter *NUMBER_OF_SOURCES* specifies the size of the map for
+    /// incoming can message sources. One "source" is one device sending on one topic.
     /// As this is used to generate a hash map NUMBER_OF_SOURCES needs to be a power of 2
-    pub fn split<const NUMBER_OF_SOURCES: usize>(self) -> (receiver::RodosCanReceiver<NUMBER_OF_SOURCES>, sender::RodosCanSender, RodosCanRelay::<'d, Active>) {
+    ///
+    /// + The const parameter *MAX_PACKET_LENGTH* specifies the size of the buffer allocated to each
+    /// source. as one RODOS can message contains 5 bytes of payload this should be a multiple of 5
+    pub fn split<const NUMBER_OF_SOURCES: usize, const MAX_PACKET_LENGTH: usize>(self) ->
+        (receiver::RodosCanReceiver<NUMBER_OF_SOURCES, MAX_PACKET_LENGTH>, sender::RodosCanSender, RodosCanRelay::<'d, Active>) {
         (
             receiver::RodosCanReceiver::new(self.interface.reader()),
             sender::RodosCanSender::new(self.interface.writer()),

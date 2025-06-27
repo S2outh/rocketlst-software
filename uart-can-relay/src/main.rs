@@ -6,10 +6,15 @@ mod rodos_can_relay;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::{
-    bind_interrupts, can::{self, filter::ExtendedFilter, frame::Header, BufferedCanReceiver, CanConfigurator, CanRx, Frame, RxBuf, TxBuf}, gpio::{Level, Output, Speed}, mode::Async, peripherals::*, rcc::{self, mux::Fdcansel}, usart::{self, Uart, UartTx}, Config
+    bind_interrupts,
+    can::{self, CanConfigurator},
+    gpio::{Level, Output, Speed},
+    mode::Async,
+    peripherals::*,
+    rcc::{self, mux::Fdcansel},
+    usart::{self, Uart, UartTx}, Config
 };
 use heapless::Vec;
-use static_cell::StaticCell;
 use embassy_time::Timer;
 use embedded_io_async::Write;
 use crate::rodos_can_relay::{receiver::RodosCanReceiver, RodosCanRelay};
@@ -24,7 +29,7 @@ bind_interrupts!(struct Irqs {
 });
 
 #[embassy_executor::task]
-async fn sender(mut can: RodosCanReceiver, mut uart: UartTx<'static, Async>) {
+async fn sender(mut can: RodosCanReceiver<16, 250>, mut uart: UartTx<'static, Async>) {
 
     let mut seq_num: u16 = 0;
     loop {
@@ -39,7 +44,7 @@ async fn sender(mut can: RodosCanReceiver, mut uart: UartTx<'static, Async>) {
                 ];
                 seq_num = seq_num.wrapping_add(1);
 
-                let mut packet: Vec<u8, 16> = Vec::new(); // max data length = 8 bytes
+                let mut packet: Vec<u8, 254> = Vec::new(); // max openlst data length
                 packet.extend_from_slice(&header).unwrap();
                 packet.extend_from_slice(frame.data()).unwrap();
 
@@ -94,7 +99,7 @@ async fn main(spawner: Spawner) {
         CanConfigurator::new(p.FDCAN1, p.PA11, p.PA12, Irqs),
         1_000_000,
         &[(0x00, None)],
-        ).split::<16>();
+        ).split::<16, 250>();
 
     // set can standby pin to low
     let _can_standby = Output::new(p.PA10, Level::Low, Speed::Low);
