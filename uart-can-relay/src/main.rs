@@ -29,7 +29,7 @@ bind_interrupts!(struct Irqs {
 });
 
 #[embassy_executor::task]
-async fn sender(mut can: RodosCanReceiver<16, 250>, mut uart: UartTx<'static, Async>) {
+async fn sender(mut can: RodosCanReceiver<16, 246>, mut uart: UartTx<'static, Async>) {
 
     let mut seq_num: u16 = 0;
     loop {
@@ -99,7 +99,7 @@ async fn main(spawner: Spawner) {
         CanConfigurator::new(p.FDCAN1, p.PA11, p.PA12, Irqs),
         1_000_000,
         &[(0x00, None)],
-        ).split::<16, 250>();
+        ).split::<16, 246>();
 
     // set can standby pin to low
     let _can_standby = Output::new(p.PA10, Level::Low, Speed::Low);
