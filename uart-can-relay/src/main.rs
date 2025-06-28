@@ -5,6 +5,7 @@ mod rodos_can_relay;
 
 use defmt::*;
 use embassy_executor::Spawner;
+use embassy_futures::join::join;
 use embassy_stm32::{
     bind_interrupts,
     can::{self, CanConfigurator},
@@ -28,7 +29,6 @@ bind_interrupts!(struct Irqs {
     USART3_4_5_6_LPUART1 => usart::InterruptHandler<USART6>;
 });
 
-#[embassy_executor::task]
 async fn sender(mut can: RodosCanReceiver<16, 246>, mut uart: UartTx<'static, Async>) {
 
     let mut seq_num: u16 = 0;
@@ -88,7 +88,7 @@ fn get_rcc_config() -> rcc::Config {
 
 /// program entry
 #[embassy_executor::main]
-async fn main(spawner: Spawner) {
+async fn main(_spawner: Spawner) {
     let mut config = Config::default();
     config.rcc = get_rcc_config();
     let p = embassy_stm32::init(config);
@@ -119,16 +119,7 @@ async fn main(spawner: Spawner) {
         p.DMA1_CH1, p.DMA1_CH2,
         uart_config).unwrap().split();
 
+    sender(can_reader, uart_tx).await;
 
-    spawner.must_spawn(sender(can_reader, uart_tx));
-
-    let mut led = Output::new(p.PA2, Level::High, Speed::Low);
-
-    loop {
-        led.set_high();
-        Timer::after_millis(1000).await;
-
-        led.set_low();
-        Timer::after_millis(1000).await;
-    }
+    loop {}
 }
