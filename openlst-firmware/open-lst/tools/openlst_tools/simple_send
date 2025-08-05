@@ -69,7 +69,7 @@ def main():
     parser.add_argument(
         '-i', '--hwid',
         type=hwid_type,
-        default=0x0001,
+        default=0x2dec,
         help="The HWID of the satellite or ground radio")
     parser.add_argument(
         '-c','--callsign', 

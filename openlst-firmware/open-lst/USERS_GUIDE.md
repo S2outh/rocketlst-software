@@ -397,8 +397,8 @@ You will need to specify two parameters when loading the bootloader:
 
 ```bash
 ubuntu@ubuntu-xenial:~/project$ flash_bootloader --keys \
-FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF \
-FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF --hwid 0001 openlst_437_bootloader.hex
+1546b4ec69f6266fb034b1958b830843 e5bf8ce5f97edb1917b9171fd8098684 \
+a6b82e09334ddbd6d7e0da1e52d70a6f --hwid 2dec openlst_437_bootloader.hex
 ```
 
 This will erase the flash on the CC1110 and load the bootloader binary,
@@ -464,19 +464,19 @@ Once signed, the application can be loaded using:
 
 ```bash
 $ bootload_radio --signature-file openlst_437_radio.sig \
--i 0001 openlst_437_radio.hex
+-i 2dec openlst_437_radio.hex
 
 INFO:root:Read firmware image
 INFO:root:Inserted signature
-DEBUG:openlst_tools.commands:Sending (0001): lst reboot
+DEBUG:openlst_tools.commands:Sending (2dec): lst reboot
 DEBUG:openlst_tools.commands:No response
-DEBUG:openlst_tools.commands:Sending (0001): lst bootloader_erase
+DEBUG:openlst_tools.commands:Sending (2dec): lst bootloader_erase
 DEBUG:openlst_tools.commands:Response: lst bootloader_ack 1
-DEBUG:openlst_tools.commands:Sending (0001): lst bootloader_write_page 8 ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+DEBUG:openlst_tools.commands:Sending (2dec): lst bootloader_write_page 8 ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 ...
 ...
 DEBUG:openlst_tools.commands:Response: lst bootloader_ack 215
-DEBUG:openlst_tools.commands:Sending (0001): lst bootloader_write_page 255
+DEBUG:openlst_tools.commands:Sending (2dec): lst bootloader_write_page 255
 DEBUG:openlst_tools.commands:Response: lst bootloader_nack
 ```
 
@@ -554,7 +554,7 @@ appropriately:
 The hardware ID (HWID) is a 2-byte serial number assigned to the radio and used
 to identify the unit to which commands are addressed. Usually this is expressed
 as a four-digit hexadecimal value, for instance you may have assigned the radio
-the HWID `0x0001` in the examples above. Each unit you use should have a unique
+the HWID `0x2dec` in the examples above. Each unit you use should have a unique
 HWID.
 
 #### SEQNUM
