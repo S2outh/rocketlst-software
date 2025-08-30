@@ -22,8 +22,8 @@ use heapless::Vec;
 use {defmt_rtt as _, panic_probe as _};
 
 const RODOS_DEVICE_ID: u8 = 0x01;
-const RODOS_REC_TOPIC_ID: u16 = 0x0FA0;
-const RODOS_SND_TOPIC_ID: u16 = 0x0FA0;
+const RODOS_REC_TOPIC_ID: u16 = 4000;
+const RODOS_SND_TOPIC_ID: u16 = 4001;
 
 // bin can interrupts
 bind_interrupts!(struct Irqs {
