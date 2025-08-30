@@ -61,8 +61,8 @@ impl<'d> RodosCanRelay<'d, Config> {
                 } else {
                     let can_id_range_end: u32 = can_id_range_start | 0xFF;
                     can::filter::FilterType::Range {
-                        from: ExtendedId::new(can_id_range_start).unwrap(),
-                        to: ExtendedId::new(can_id_range_end).unwrap(),
+                        to: ExtendedId::new(can_id_range_start).unwrap(),
+                        from: ExtendedId::new(can_id_range_end).unwrap(),
                     }
                 };
                 ExtendedFilter {

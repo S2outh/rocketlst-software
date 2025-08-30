@@ -1,4 +1,4 @@
-use defmt::Format;
+use defmt::{info, Format};
 use embassy_stm32::can::{BufferedCanReceiver, Frame, enums::BusError};
 use embedded_can::Id;
 use heapless::{FnvIndexMap, Vec};
@@ -88,7 +88,7 @@ impl<const NUMBER_OF_SOURCES: usize, const MAX_PACKET_LENGTH: usize>
         }
         let seq_num = frame.data()[0] as usize;
         let seq_len = frame.data()[2] as usize;
-        let data = frame.data()[2..].try_into().unwrap();
+        let data = frame.data()[3..].try_into().unwrap();
 
         Ok(RodosCanFramePart {
             id,
@@ -102,6 +102,7 @@ impl<const NUMBER_OF_SOURCES: usize, const MAX_PACKET_LENGTH: usize>
         loop {
             match self.receiver.receive().await {
                 Ok(envelope) => {
+                    info!("test");
                     let frame_part = Self::decode(&envelope.frame)
                         .map_err(|e| RodosCanReceiveError::CouldNotDecode(e))?;
                     // check if seq len is too long

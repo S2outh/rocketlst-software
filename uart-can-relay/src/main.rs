@@ -21,8 +21,8 @@ use heapless::Vec;
 
 use {defmt_rtt as _, panic_probe as _};
 
-const RODOS_DEVICE_ID: u8 = 5;
-const RODOS_TOPIC_ID: u16 = 1235;
+const RODOS_DEVICE_ID: u8 = 0x01;
+const RODOS_TOPIC_ID: u16 = 0x01;
 
 // bin can interrupts
 bind_interrupts!(struct Irqs {
@@ -37,6 +37,7 @@ async fn sender<const NOS: usize, const MPL: usize>(mut can: RodosCanReceiver<NO
     loop {
         match can.receive().await {
             Ok(frame) => {
+                info!("received smt");
                 let header = [
                     0x22, 0x69,                          // Uart start bytes
                     frame.data().len() as u8 + 6,        // packet length
@@ -111,7 +112,7 @@ async fn main(_spawner: Spawner) {
         CanConfigurator::new(p.FDCAN1, p.PA11, p.PA12, Irqs),
         1_000_000,
         RODOS_DEVICE_ID,
-        &[(1234, None)],
+        &[(0x0FA0, None)], // Some(0x46)
     )
     .split::<2, 246>();
 
