@@ -1,29 +1,29 @@
 #![no_std]
 #![no_main]
 
-mod rodos_can_relay;
-
-use crate::rodos_can_relay::{RodosCanRelay, receiver::RodosCanReceiver, sender::RodosCanSender};
+use rodos_can_interface::{RodosCanInterface, receiver::RodosCanReceiver, sender::RodosCanSender};
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_stm32::{
-    Config, bind_interrupts,
-    can::{self, CanConfigurator},
-    gpio::{Level, Output, Speed},
-    mode::Async,
-    peripherals::*,
-    rcc::{self, mux::Fdcansel},
-    usart::{self, Uart, UartRx, UartTx},
+    bind_interrupts, can::{self, CanConfigurator, RxBuf, TxBuf}, gpio::{Level, Output, Speed}, mode::Async, peripherals::*, rcc::{self, mux::Fdcansel}, usart::{self, Uart, UartRx, UartTx}, Config
 };
 use embedded_io_async::Write;
 use heapless::Vec;
 
 use {defmt_rtt as _, panic_probe as _};
 
+use static_cell::StaticCell;
+
 const RODOS_DEVICE_ID: u8 = 0x01;
 const RODOS_REC_TOPIC_ID: u16 = 4000;
 const RODOS_SND_TOPIC_ID: u16 = 4001;
+
+const RX_BUF_SIZE: usize = 500;
+const TX_BUF_SIZE: usize = 30;
+
+static RX_BUF: StaticCell<embassy_stm32::can::RxBuf<RX_BUF_SIZE>> = StaticCell::new();
+static TX_BUF: StaticCell<embassy_stm32::can::TxBuf<TX_BUF_SIZE>> = StaticCell::new();
 
 // bin can interrupts
 bind_interrupts!(struct Irqs {
@@ -122,8 +122,10 @@ async fn main(_spawner: Spawner) {
     info!("Launching");
 
     // -- CAN configuration
-    let (can_reader, can_sender, _active_instance) = RodosCanRelay::new(
+    let (can_reader, can_sender, _active_instance) = RodosCanInterface::new(
         CanConfigurator::new(p.FDCAN1, p.PA11, p.PA12, Irqs),
+        TX_BUF.init(TxBuf::<TX_BUF_SIZE>::new()),
+        RX_BUF.init(RxBuf::<RX_BUF_SIZE>::new()),
         1_000_000,
         RODOS_DEVICE_ID,
         &[(RODOS_REC_TOPIC_ID, None)], // Some(0x46)
