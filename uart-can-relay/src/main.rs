@@ -1,6 +1,8 @@
 #![no_std]
 #![no_main]
 
+use core::cmp::min;
+
 use rodos_can_interface::{RodosCanInterface, receiver::RodosCanReceiver, sender::RodosCanSender};
 use defmt::*;
 use embassy_executor::Spawner;
@@ -79,9 +81,10 @@ async fn receiver(mut can: RodosCanSender, mut uart: UartRx<'static, Async>) {
                     // incomplete msg
                     continue;
                 }
-                
+
                 let mut rodos_buffer: [u8; TELECMD_MAX_LEN] = [0; TELECMD_MAX_LEN];
-                rodos_buffer[..(TELECMD_MAX_LEN-HEADER_LEN)].copy_from_slice(&buffer[HEADER_LEN..]);
+                let telecmd_len = min(TELECMD_MAX_LEN, len-HEADER_LEN);
+                rodos_buffer[..telecmd_len].copy_from_slice(&buffer[HEADER_LEN..telecmd_len+HEADER_LEN]);
                 rodos_buffer[TELECMD_MAX_LEN - 1] = (len - HEADER_LEN) as u8;
 
                 if let Err(e) = can.send(RODOS_SND_TOPIC_ID, &rodos_buffer).await {

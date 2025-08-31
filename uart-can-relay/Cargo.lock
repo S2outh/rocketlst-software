@@ -715,24 +715,12 @@ checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
 [[package]]
 name = "rodos_can_interface"
 version = "0.1.0"
-source = "git+ssh://git@gitlab2.informatik.uni-wuerzburg.de/wuespace/south/rodos-can-interface.git#2d74ddd3f66f4cb2161710e550e657b715a91b33"
+source = "git+ssh://git@gitlab2.informatik.uni-wuerzburg.de/wuespace/south/rodos-can-interface.git#17d92bb52ed10ff93437dad4d4f2190745904f8a"
 dependencies = [
- "cortex-m",
- "cortex-m-rt",
  "defmt 0.3.100",
- "defmt-rtt",
- "embassy-executor",
- "embassy-futures",
  "embassy-stm32",
- "embassy-sync 0.6.2",
- "embassy-time",
  "embedded-can",
- "embedded-hal 0.2.7",
- "embedded-io-async",
  "heapless",
- "panic-probe",
- "portable-atomic",
- "static_cell",
 ]
 
 [[package]]
