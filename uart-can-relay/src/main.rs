@@ -21,6 +21,8 @@ const RODOS_DEVICE_ID: u8 = 0x01;
 const RODOS_REC_TOPIC_ID: u16 = 4000;
 const RODOS_SND_TOPIC_ID: u16 = 4001;
 
+const RODOS_RAW_MSG_LEN: usize = 247;
+
 const RX_BUF_SIZE: usize = 500;
 const TX_BUF_SIZE: usize = 30;
 
@@ -40,8 +42,8 @@ async fn sender<const NOS: usize, const MPL: usize>(mut can: RodosCanReceiver<NO
     loop {
         match can.receive().await {
             Ok(frame) => {
-                let number_of_bytes = frame.data()[246]; // for now hardcoded, the last byte is the
-                                                         // number of actually used bytes
+                let number_of_bytes = frame.data()[RODOS_RAW_MSG_LEN - 1]; // for now hardcoded, the last byte is the
+                                                                           // number of actually used bytes
 
                 let header = [
                     0x22, 0x69,                          // Uart start bytes
@@ -76,17 +78,16 @@ async fn receiver(mut can: RodosCanSender, mut uart: UartRx<'static, Async>) {
         match uart.read_until_idle(&mut buffer).await {
             Ok(len) => {
                 const HEADER_LEN: usize = 9;
-                const TELECMD_MAX_LEN: usize = 32;
 
                 if len <= HEADER_LEN {
                     // incomplete msg
                     continue;
                 }
 
-                let mut rodos_buffer: [u8; TELECMD_MAX_LEN] = [0; TELECMD_MAX_LEN];
-                let telecmd_len = min(TELECMD_MAX_LEN, len-HEADER_LEN);
+                let mut rodos_buffer: [u8; RODOS_RAW_MSG_LEN] = [0; RODOS_RAW_MSG_LEN];
+                let telecmd_len = min(RODOS_RAW_MSG_LEN, len-HEADER_LEN);
                 rodos_buffer[..telecmd_len].copy_from_slice(&buffer[HEADER_LEN..telecmd_len+HEADER_LEN]);
-                rodos_buffer[TELECMD_MAX_LEN - 1] = (len - HEADER_LEN) as u8;
+                rodos_buffer[RODOS_RAW_MSG_LEN - 1] = (len - HEADER_LEN) as u8;
 
                 if let Err(e) = can.send(RODOS_SND_TOPIC_ID, &rodos_buffer).await {
                     error!("could not send frame via can: {}", e);
@@ -134,7 +135,7 @@ async fn main(_spawner: Spawner) {
         RODOS_DEVICE_ID,
         &[(RODOS_REC_TOPIC_ID, None)], // Some(0x46)
     )
-    .split::<4, 247>();
+    .split::<4, RODOS_RAW_MSG_LEN>();
 
     // set can standby pin to low
     let _can_standby = Output::new(p.PA10, Level::Low, Speed::Low);
