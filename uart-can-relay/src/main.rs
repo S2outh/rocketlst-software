@@ -3,12 +3,13 @@
 
 use core::cmp::min;
 
+use embassy_time::Timer;
 use rodos_can_interface::{RodosCanInterface, receiver::RodosCanReceiver, sender::RodosCanSender};
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_futures::join::join;
+use embassy_futures::join::join3;
 use embassy_stm32::{
-    bind_interrupts, can::{self, CanConfigurator, RxBuf, TxBuf}, gpio::{Level, Output, Speed}, mode::Async, peripherals::*, rcc::{self, mux::Fdcansel}, usart::{self, Uart, UartRx, UartTx}, Config
+    bind_interrupts, can::{self, CanConfigurator, RxBuf, TxBuf}, gpio::{Level, Output, Speed}, mode::Async, peripherals::*, rcc::{self, mux::Fdcansel}, usart::{self, Uart, UartRx, UartTx}, wdg::IndependentWatchdog, Config
 };
 use embedded_io_async::Write;
 use heapless::Vec;
@@ -34,7 +35,6 @@ bind_interrupts!(struct Irqs {
     TIM16_FDCAN_IT0 => can::IT0InterruptHandler<FDCAN1>;
     TIM17_FDCAN_IT1 => can::IT1InterruptHandler<FDCAN1>;
     USART3_4_5_6_LPUART1 => usart::InterruptHandler<USART5>;
-    // USART2_LPUART2 => usart::InterruptHandler<USART2>;
 });
 
 /// take can telemetry frame, add necessary headers and relay to RocketLST via uart
@@ -107,6 +107,14 @@ async fn receiver(mut can: RodosCanSender, mut uart: UartRx<'static, Async>) {
     }
 }
 
+/// Watchdog petting task
+async fn petter(mut watchdog: IndependentWatchdog<'_, IWDG>) {
+    loop {
+        watchdog.pet();
+        Timer::after_millis(200).await;
+    }
+}
+
 /// config rcc for higher sysclock and fdcan periph clock to make sure
 /// all messages can be received without package drop
 fn get_rcc_config() -> rcc::Config {
@@ -132,6 +140,10 @@ async fn main(_spawner: Spawner) {
     config.rcc = get_rcc_config();
     let p = embassy_stm32::init(config);
     info!("Launching");
+    
+    // independent watchdog with timeout 300 MS
+    let mut watchdog = IndependentWatchdog::new(p.IWDG, 300_000);
+    watchdog.unleash();
 
     // -- CAN configuration
     let mut rodos_can_configurator = RodosCanInterface::new(
@@ -173,13 +185,6 @@ async fn main(_spawner: Spawner) {
         Irqs,
         p.DMA1_CH1, p.DMA1_CH2,
         uart_config).unwrap().split();
-    
-    // let (uart_tx, uart_rx) = Uart::new(p.USART2,
-    //     p.PA3, p.PA2,
-    //     Irqs,
-    //     p.DMA1_CH1, p.DMA1_CH2,
-    //     uart_config).unwrap().split();
 
-
-    join(sender(can_reader, uart_tx), receiver(can_sender, uart_rx)).await;
+    join3(sender(can_reader, uart_tx), receiver(can_sender, uart_rx), petter(watchdog)).await;
 }
