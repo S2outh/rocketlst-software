@@ -715,7 +715,7 @@ checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
 [[package]]
 name = "rodos_can_interface"
 version = "0.1.0"
-source = "git+ssh://git@gitlab2.informatik.uni-wuerzburg.de/wuespace/south/rodos-can-interface.git#744c9b2633c032e13918bb0fd915b01a7fa9a14f"
+source = "git+ssh://git@gitlab2.informatik.uni-wuerzburg.de/wuespace/south/rodos-can-interface.git#be0de5118490aa8a70415de2468b71facf665ce9"
 dependencies = [
  "defmt 0.3.100",
  "embassy-stm32",

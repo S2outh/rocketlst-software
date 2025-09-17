@@ -58,9 +58,6 @@ async fn sender<const NOS: usize, const MPL: usize>(mut can: RodosCanReceiver<NO
                 ];
                 seq_num = seq_num.wrapping_add(1);
 
-                let _ = frame.topic();
-                let _ = frame.device();
-
                 let mut packet: Vec<u8, 256> = Vec::new(); // max openlst data length
                 packet.extend_from_slice(&header).unwrap();
                 // skip first byte cause it is the msg length, send the rest up to length
@@ -155,10 +152,11 @@ async fn main(_spawner: Spawner) {
         .set_bitrate(1_000_000)
         .add_receive_topic(RODOS_REC_TOPIC_ID, None).unwrap();
 
-    let (can_reader, can_sender, _active_instance) = rodos_can_configurator.split_buffered::<4, RODOS_MAX_RAW_MSG_LEN, TX_BUF_SIZE, RX_BUF_SIZE>(
+    let (can_reader, can_sender, _active_instance) = rodos_can_configurator
+        .activate::<4, RODOS_MAX_RAW_MSG_LEN, TX_BUF_SIZE, RX_BUF_SIZE>(
         TX_BUF.init(TxBuf::<TX_BUF_SIZE>::new()),
         RX_BUF.init(RxBuf::<RX_BUF_SIZE>::new()),
-    );
+    ).split_buffered();
 
     // set can standby pin to low
     let _can_standby = Output::new(p.PA10, Level::Low, Speed::Low);
