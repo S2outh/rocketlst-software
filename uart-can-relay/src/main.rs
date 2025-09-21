@@ -23,6 +23,7 @@ const RODOS_REC_TOPIC_ID: u16 = 4000;
 const RODOS_SND_TOPIC_ID: u16 = 4001;
 
 const RODOS_MAX_RAW_MSG_LEN: usize = 247;
+const RODOS_TC_MSG_LEN: usize = 19; // 16 byte payload + subsys id, cmd id, pl len
 
 const RX_BUF_SIZE: usize = 500;
 const TX_BUF_SIZE: usize = 30;
@@ -51,9 +52,9 @@ async fn sender<const NOS: usize, const MPL: usize>(mut can: RodosCanReceiver<NO
                 let header = [
                     0x22, 0x69,                          // Uart start bytes
                     rodos_msg_len + 6,                   // packet length (+6 for remaining header)
-                    0x00, 0x01,                          // Hardware ID
+                    0x00, 0x01,                          // Hardware ID (essentially irrelevant)
                     (seq_num >> 8) as u8, seq_num as u8, // SeqNum
-                    0x11,                                // Destination
+                    0x11,                                // Destination (0x01: LST, 0x11: Relay)
                     0x11                                 // Mode = ascii
                 ];
                 seq_num = seq_num.wrapping_add(1);
@@ -86,14 +87,18 @@ async fn receiver(mut can: RodosCanSender, mut uart: UartRx<'static, Async>) {
                     continue;
                 }
 
-                let rodos_msg_len = min(RODOS_MAX_RAW_MSG_LEN, len-HEADER_LEN);
+                // msg comming from this lst, not relay
+                if buffer[7] == 0x01 {
+                    continue;
+                }
+
+                let rodos_msg_len = min(RODOS_TC_MSG_LEN, len-HEADER_LEN);
                 
                 info!("received: {}", rodos_msg_len);
                 
-                let rodos_buffer = &mut buffer[HEADER_LEN-1..];
-                rodos_buffer[0] = rodos_msg_len as u8;
+                let rodos_buffer = &mut buffer[HEADER_LEN..];
                 
-                if let Err(e) = can.send(RODOS_SND_TOPIC_ID, &rodos_buffer[..rodos_msg_len+1]).await {
+                if let Err(e) = can.send(RODOS_SND_TOPIC_ID, &rodos_buffer[..rodos_msg_len]).await {
                     error!("could not send frame via can: {}", e);
                 }
             }
