@@ -1,6 +1,9 @@
 #![no_std]
 #![no_main]
 
+mod lst_sender;
+mod lst_receiver;
+
 use core::cmp::min;
 
 use embassy_time::Timer;
@@ -9,18 +12,34 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_futures::join::join3;
 use embassy_stm32::{
-    bind_interrupts, can::{self, CanConfigurator, RxBuf, TxBuf}, gpio::{Level, Output, Speed}, mode::Async, peripherals::*, rcc::{self, mux::Fdcansel}, usart::{self, Uart, UartRx, UartTx}, wdg::IndependentWatchdog, Config
+    bind_interrupts, can::{self, CanConfigurator, RxBuf, TxBuf}, gpio::{Level, Output, Speed}, peripherals::*, rcc::{self, mux::Fdcansel}, usart::{self, Uart}, wdg::IndependentWatchdog, Config
 };
-use embedded_io_async::Write;
-use heapless::Vec;
+use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, signal::Signal};
 
 use {defmt_rtt as _, panic_probe as _};
 
 use static_cell::StaticCell;
 
+use lst_sender::{LSTSender, LSTCmd};
+use lst_receiver::{LSTReceiver, LSTMessage};
+
 const RODOS_DEVICE_ID: u8 = 0x01;
-const RODOS_REC_TOPIC_ID: u16 = 4000;
-const RODOS_SND_TOPIC_ID: u16 = 4001;
+
+#[repr(u16)]
+enum TopicId {
+    Cmd = 8000,
+    Telem = 4000,
+    TelemReq = 1000,
+    TelemUptime = 1420,
+    TelemRssi = 1421,
+    TelemLQI = 1422,
+    TelemPacketsSend = 1423,
+    TelemPacketsGood = 1424,
+    TelemPacketsBadChecksum = 1425,
+    TelemPacketsBadOther = 1426,
+}
+
+const LST_CMD_SUBSYS_ID: u8 = 0x00;
 
 const RODOS_MAX_RAW_MSG_LEN: usize = 247;
 const RODOS_TC_MSG_LEN: usize = 19; // 16 byte payload + subsys id, cmd id, pl len
@@ -39,71 +58,95 @@ bind_interrupts!(struct Irqs {
 });
 
 /// take can telemetry frame, add necessary headers and relay to RocketLST via uart
-async fn sender<const NOS: usize, const MPL: usize>(mut can: RodosCanReceiver<NOS, MPL>, mut uart: UartTx<'static, Async>) {
-    let mut seq_num: u16 = 0;
+async fn sender<const NOS: usize, const MPL: usize>(mut can: RodosCanReceiver<NOS, MPL>, mut lst: LSTSender<'static>, lst_cmd_receiver: &Signal<ThreadModeRawMutex, u8>) {
     loop {
+        // receive lst cmds
+        if let Some(cmd) = lst_cmd_receiver.try_take() {
+            match cmd {
+                0x00 => lst.send_cmd(LSTCmd::Reboot).await.unwrap_or_else(|e| {
+                    error!("could not execute reboot: {}", e);
+                }),
+                _ => error!("unknown cmd"),
+            }
+        }
+
+        const RODOS_TM_REQ_TOPIC_ID: u16 = TopicId::TelemReq as u16;
+        const RODOS_TM_TOPIC_ID: u16 = TopicId::Telem as u16;
+
+        // receive from can
         match can.receive().await {
             Ok(frame) => {
-                let rodos_msg_len = frame.data()[0]; // for now hardcoded, the first byte is the
-                                                     // number of actually used bytes
+                match frame.topic() {
+                    RODOS_TM_TOPIC_ID => {
+                        let rodos_msg_len = frame.data()[0] as usize; // the first byte is the
+                                                                      // number of actually used
+                                                                      // bytes
 
-                info!("send: {}", rodos_msg_len);
+                        info!("send: {}", rodos_msg_len);
 
-                let header = [
-                    0x22, 0x69,                          // Uart start bytes
-                    rodos_msg_len + 6,                   // packet length (+6 for remaining header)
-                    0x00, 0x01,                          // Hardware ID (essentially irrelevant)
-                    (seq_num >> 8) as u8, seq_num as u8, // SeqNum
-                    0x11,                                // Destination (0x01: LST, 0x11: Relay)
-                    0x11                                 // Mode = ascii
-                ];
-                seq_num = seq_num.wrapping_add(1);
-
-                let mut packet: Vec<u8, 256> = Vec::new(); // max openlst data length
-                packet.extend_from_slice(&header).unwrap();
-                // skip first byte cause it is the msg length, send the rest up to length
-                // number_of_bytes
-                packet.extend_from_slice(&frame.data()[1..][..rodos_msg_len as usize]).unwrap();
-
-                if let Err(e) = uart.write_all(&packet).await {
-                    error!("dropped frames: {}", e)
+                        if let Err(e) = lst.send(&frame.data()[1..rodos_msg_len+1]).await {
+                            error!("could not send via lsp {}", e);
+                        }
+                    },
+                    RODOS_TM_REQ_TOPIC_ID => {
+                        if let Err(e) = lst.send_cmd(LSTCmd::GetTelem).await {
+                            error!("could not send cmd {}", e);
+                        }
+                    },
+                    _ => {}
                 }
             }
-            Err(e) => error!("error in frame! {}", e),
+            Err(e) => error!("error in can frame! {}", e),
         };
     }
 }
 
 /// receive data from RocketLST and transmit via can
-async fn receiver(mut can: RodosCanSender, mut uart: UartRx<'static, Async>) {
-    let mut buffer: [u8; 257] = [0; 257];
+async fn receiver(mut can: RodosCanSender, mut lst: LSTReceiver<'static>, lst_cmd_sender: &Signal<ThreadModeRawMutex, u8>) {
+    let mut buffer = [0u8; 256];
     loop {
-        match uart.read_until_idle(&mut buffer).await {
-            Ok(len) => {
-                const HEADER_LEN: usize = 9;
+        match lst.receive(&mut buffer).await {
+            Ok(msg) => {
+                match msg {
+                    LSTMessage::Relay(rodos_msg) => {
+                        let rodos_msg_len = min(RODOS_TC_MSG_LEN, rodos_msg.len());
+                        
+                        if rodos_msg_len < 3 {
+                            // rodos cmd is missing required bytes
+                            continue;
+                        }
+                        
+                        info!("received: {}", rodos_msg_len);
 
-                if len <= HEADER_LEN {
-                    // incomplete msg
-                    continue;
-                }
+                        // tc for this lst, signal it to the sender for execution
+                        if rodos_msg[0] == LST_CMD_SUBSYS_ID {
+                            lst_cmd_sender.signal(rodos_msg[1]);
+                            continue;
+                        }
+                        
+                        // otherwise send it via can to the rest of the system
+                        if let Err(e) = can.send(TopicId::Cmd as u16, &rodos_msg[..rodos_msg_len]).await {
+                            error!("could not send frame via can: {}", e);
+                        }
 
-                // msg comming from this lst, not relay
-                if buffer[7] == 0x01 {
-                    continue;
-                }
 
-                let rodos_msg_len = min(RODOS_TC_MSG_LEN, len-HEADER_LEN);
-                
-                info!("received: {}", rodos_msg_len);
-                
-                let rodos_buffer = &mut buffer[HEADER_LEN..];
-                
-                if let Err(e) = can.send(RODOS_SND_TOPIC_ID, &rodos_buffer[..rodos_msg_len]).await {
-                    error!("could not send frame via can: {}", e);
+                    }
+                    LSTMessage::Telem(telemetry) => {
+                        let _ = can.send(TopicId::TelemUptime as u16, &telemetry.uptime.to_le_bytes()).await;
+                        let _ = can.send(TopicId::TelemRssi as u16, &telemetry.rssi.to_le_bytes()).await;
+                        let _ = can.send(TopicId::TelemLQI as u16, &telemetry.lqi.to_le_bytes()).await;
+                        let _ = can.send(TopicId::TelemPacketsSend as u16, &telemetry.packets_sent.to_le_bytes()).await;
+                        let _ = can.send(TopicId::TelemPacketsGood as u16, &telemetry.packets_good.to_le_bytes()).await;
+                        let _ = can.send(TopicId::TelemPacketsBadChecksum as u16, &telemetry.packets_rejected_checksum.to_le_bytes()).await;
+                        let _ = can.send(TopicId::TelemPacketsBadOther as u16, &telemetry.packets_rejected_other.to_le_bytes()).await;
+                    }
+                    LSTMessage::Ack => info!("ack :)"),
+                    LSTMessage::Nack => info!("nack :("),
+                    LSTMessage::Unknown => error!("unknown msg received"),
                 }
             }
             Err(e) => {
-                error!("could not receive uart frame: {}", e);
+                error!("could receive from lst: {}", e);
             }
         }
     }
@@ -155,7 +198,8 @@ async fn main(_spawner: Spawner) {
 
     rodos_can_configurator
         .set_bitrate(1_000_000)
-        .add_receive_topic(RODOS_REC_TOPIC_ID, None).unwrap();
+        .add_receive_topic(TopicId::Telem as u16, None).unwrap()
+        .add_receive_topic(TopicId::TelemReq as u16, None).unwrap();
 
     let (can_reader, can_sender, _active_instance) = rodos_can_configurator
         .activate::<4, RODOS_MAX_RAW_MSG_LEN, TX_BUF_SIZE, RX_BUF_SIZE>(
@@ -189,5 +233,10 @@ async fn main(_spawner: Spawner) {
         p.DMA1_CH1, p.DMA1_CH2,
         uart_config).unwrap().split();
 
-    join3(sender(can_reader, uart_tx), receiver(can_sender, uart_rx), petter(watchdog)).await;
+    let lst_tx = LSTSender::new(uart_tx);
+    let lst_rx = LSTReceiver::new(uart_rx);
+
+    let signal = Signal::new();
+
+    join3(sender(can_reader, lst_tx, &signal), receiver(can_sender, lst_rx, &signal), petter(watchdog)).await;
 }
