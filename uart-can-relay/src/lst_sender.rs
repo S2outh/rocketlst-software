@@ -33,8 +33,8 @@ impl<'a> LSTSender<'a> {
         let header = [
             0x22, 0x69,                          // Uart start bytes
             msg_len + 5,                         // packet length (+5 for remaining header)
-            0x01, 0x00,                          // Hardware ID (for the lst to accept commands)
-            (self.seq_num >> 8) as u8, self.seq_num as u8, // SeqNum
+            0x01, 0x00,                          // Hardware ID = 1 (for the lst to accept commands)
+            self.seq_num as u8, (self.seq_num >> 8) as u8, // SeqNum
             dest,                                // Destination (0x01: LST, 0x11: Relay)
         ];
         self.seq_num = self.seq_num.wrapping_add(1);

@@ -45,14 +45,14 @@ impl<'a> LSTReceiver<'a> {
             Err(ReceiverError::ParseError("telem msg too short"))
         } else {
             Ok(LSTTelemetry {
-                uptime: u32::from_be_bytes(msg[1..5].try_into().unwrap()),
+                uptime: u32::from_le_bytes(msg[1..5].try_into().unwrap()),
                 rssi: msg[35] as i8,
                 lqi: msg[36] as u8,
-                packets_sent: u32::from_be_bytes(msg[38..42].try_into().unwrap()),
-                packets_good: u32::from_be_bytes(msg[46..50].try_into().unwrap()),
-                packets_rejected_checksum: u32::from_be_bytes(msg[50..54].try_into().unwrap()),
-                packets_rejected_other: u32::from_be_bytes(msg[58..62].try_into().unwrap())
-                    + u32::from_be_bytes(msg[54..58].try_into().unwrap()),
+                packets_sent: u32::from_le_bytes(msg[38..42].try_into().unwrap()),
+                packets_good: u32::from_le_bytes(msg[46..50].try_into().unwrap()),
+                packets_rejected_checksum: u32::from_le_bytes(msg[50..54].try_into().unwrap()),
+                packets_rejected_other: u32::from_le_bytes(msg[58..62].try_into().unwrap())
+                    + u32::from_le_bytes(msg[54..58].try_into().unwrap()),
             })
         }
     }

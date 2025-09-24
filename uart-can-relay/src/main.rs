@@ -47,6 +47,8 @@ const RODOS_TC_MSG_LEN: usize = 19; // 16 byte payload + subsys id, cmd id, pl l
 const RX_BUF_SIZE: usize = 500;
 const TX_BUF_SIZE: usize = 30;
 
+const TELEM_EVERY_N: u8 = 10;
+
 static RX_BUF: StaticCell<embassy_stm32::can::RxBuf<RX_BUF_SIZE>> = StaticCell::new();
 static TX_BUF: StaticCell<embassy_stm32::can::TxBuf<TX_BUF_SIZE>> = StaticCell::new();
 
@@ -63,6 +65,8 @@ async fn sender<const NOS: usize, const MPL: usize>(mut can: RodosCanReceiver<NO
         const RODOS_TM_REQ_TOPIC_ID: u16 = TopicId::TelemReq as u16;
         const RODOS_TM_TOPIC_ID: u16 = TopicId::RawSend as u16;
         const RODOS_CMD_TOPIC_ID: u16 = TopicId::Cmd as u16;
+
+        let mut telem_req_counter = 0;
 
         // receive from can
         match can.receive().await {
@@ -97,6 +101,10 @@ async fn sender<const NOS: usize, const MPL: usize>(mut can: RodosCanReceiver<NO
                         }
                     }
                     RODOS_TM_REQ_TOPIC_ID => {
+                        telem_req_counter = (telem_req_counter + 1) % TELEM_EVERY_N;
+                        if telem_req_counter != 0 {
+                            continue;
+                        }
                         if let Err(e) = lst.send_cmd(LSTCmd::GetTelem).await {
                             error!("could not send cmd {}", e);
                         }
@@ -200,8 +208,8 @@ async fn main(_spawner: Spawner) {
     rodos_can_configurator
         .set_bitrate(1_000_000)
         .add_receive_topic(TopicId::RawSend as u16, None).unwrap()
-        .add_receive_topic(TopicId::Cmd as u16, None).unwrap();
-        //.add_receive_topic(TopicId::TelemReq as u16, None).unwrap();
+        .add_receive_topic(TopicId::Cmd as u16, None).unwrap()
+        .add_receive_topic(TopicId::TelemReq as u16, None).unwrap();
 
     let (can_reader, can_sender, _active_instance) = rodos_can_configurator
         .activate::<4, RODOS_MAX_RAW_MSG_LEN, TX_BUF_SIZE, RX_BUF_SIZE>(
