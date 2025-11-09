@@ -24,7 +24,7 @@ embedded-io-async = { version = "0.6.1" }
 embedded-can = "0.4.1"
 static_cell = "2.1.1"
 
-rodos_can_interface = { git = "ssh://git@gitlab2.informatik.uni-wuerzburg.de/wuespace/south/rodos-can-interface.git", features = ["stm32g0b1ke"] }
+rodos_can_interface = { git = "ssh://git@github.com/Eleocraft/rodos-can-interface.git", features = ["stm32g0b1ke"] }
 
 [profile.release]
 debug = 2
