@@ -802,7 +802,7 @@ dependencies = [
 [[package]]
 name = "tmtc-definitions"
 version = "0.1.0"
-source = "git+ssh://git@github.com/S2outh/tmtc-definitions.git#cad823b5a7674ac061521317a04623a7de5264ec"
+source = "git+ssh://git@github.com/S2outh/tmtc-definitions.git#882328ff09b0d66ac79b8e6e290a145451bf87da"
 dependencies = [
  "tmtc-system",
 ]

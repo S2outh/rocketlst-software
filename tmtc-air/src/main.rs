@@ -99,6 +99,7 @@ async fn telemetry_thread(
             match lst_recv.receive(&mut lst_buffer).await {
                 Ok(msg) => match msg {
                     LSTMessage::Telem(tm) => {
+                        info!("received lst telem msg: {}", tm);
                         let mut lst_beacon = lst_beacon.lock().await;
                         lst_beacon.insert(&tm::lst::Uptime, &tm.uptime).unwrap();
                         lst_beacon.insert(&tm::lst::Rssi, &tm.rssi).unwrap();
@@ -111,7 +112,10 @@ async fn telemetry_thread(
                     }
                     _ => (), // ignore all other messages for now
                 },
-                Err(e) => error!("could not receive from lst: {}", e),
+                Err(e) => {
+                    error!("could not receive from lst: {}", e);
+                    break;
+                },
             }
         }
         Timer::after_millis(LST_TM_INTERVALL_MS).await;

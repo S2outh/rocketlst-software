@@ -1,7 +1,7 @@
 use core::ops::Range;
 
 use embassy_stm32::{mode::Async, usart::{Error, UartRx}};
-use defmt::Format;
+use defmt::{Format, println};
 
 const HEADER_LEN: usize = 8;
 
@@ -41,7 +41,7 @@ impl<'a> LSTReceiver<'a> {
     }
     fn parse_telem(msg: &[u8]) -> Result<LSTTelemetry, ReceiverError> {
         // 62 bytes
-        if msg.len() < 62 {
+        if msg.len() < 55 {
             Err(ReceiverError::ParseError("telem msg too short"))
         } else {
             Ok(LSTTelemetry {
@@ -51,8 +51,9 @@ impl<'a> LSTReceiver<'a> {
                 packets_sent: u32::from_le_bytes(msg[38..42].try_into().unwrap()),
                 packets_good: u32::from_le_bytes(msg[46..50].try_into().unwrap()),
                 packets_rejected_checksum: u32::from_le_bytes(msg[50..54].try_into().unwrap()),
-                packets_rejected_other: u32::from_le_bytes(msg[58..62].try_into().unwrap())
-                    + u32::from_le_bytes(msg[54..58].try_into().unwrap()),
+                packets_rejected_other: 0
+                //packets_rejected_other: u32::from_le_bytes(msg[58..62].try_into().unwrap())
+                //    + u32::from_le_bytes(msg[54..58].try_into().unwrap()),
             })
         }
     }
