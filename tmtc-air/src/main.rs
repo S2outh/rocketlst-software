@@ -4,44 +4,40 @@
 mod lst_sender;
 mod lst_receiver;
 
-use core::cmp::min;
+use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, mutex::Mutex};
+use tmtc_definitions::telemetry as tm;
 
 use embassy_time::Timer;
-use rodos_can_interface::{RodosCanInterface, receiver::RodosCanReceiver, sender::RodosCanSender};
+use rodos_can_interface::{RodosCanInterface, receiver::RodosCanReceiver};
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::{
     bind_interrupts, can::{self, CanConfigurator, RxBuf, TxBuf}, gpio::{Level, Output, Speed}, peripherals::*, rcc::{self, mux::Fdcansel}, usart::{self, Uart}, wdg::IndependentWatchdog, Config
 };
+use tmtc_definitions::{DynBeacon, DynTelemetryDefinition, LowRateTelemetry, MidRateTelemetry};
+
+use crate::lst_receiver::LSTMessage;
 
 use {defmt_rtt as _, panic_probe as _};
 
 use static_cell::StaticCell;
 
 use lst_sender::{LSTSender, LSTCmd};
-use lst_receiver::{LSTReceiver, LSTMessage};
+use lst_receiver::LSTReceiver;
 
+// General setup stuff
+const STARTUP_DELAY: u64 = 1000;
+
+// Static beacon allocation
+static LRB: StaticCell<Mutex<ThreadModeRawMutex, LowRateTelemetry>> = StaticCell::new();
+static MRB: StaticCell<Mutex<ThreadModeRawMutex, MidRateTelemetry>> = StaticCell::new();
+static LST: StaticCell<Mutex<ThreadModeRawMutex, LSTSender>> = StaticCell::new();
+
+// Can setup stuff
 const RODOS_DEVICE_ID: u8 = 0x01;
 
-#[repr(u16)]
-enum TopicId {
-    RawSend = 1000,
-    RawRecv = 1001,
-    Cmd = 1100,
-    TelemReq = 1103,
-    TelemUptime = 1420,
-    TelemRssi = 1421,
-    TelemLQI = 1422,
-    TelemPacketsSend = 1423,
-    TelemPacketsGood = 1424,
-    TelemPacketsBadChecksum = 1425,
-    TelemPacketsBadOther = 1426,
-}
-
-const LST_CMD_SUBSYS_ID: u8 = 0x00;
-
-const RODOS_MAX_RAW_MSG_LEN: usize = 247;
-const RODOS_TC_MSG_LEN: usize = 19; // 16 byte payload + subsys id, cmd id, pl len
+const RODOS_NUMBER_OF_SOURCES: usize = 8;
+const RODOS_MAX_RAW_MSG_LEN: usize = 2;
 
 const RX_BUF_SIZE: usize = 500;
 const TX_BUF_SIZE: usize = 30;
@@ -56,103 +52,69 @@ bind_interrupts!(struct Irqs {
     USART3_4_5_6_LPUART1 => usart::InterruptHandler<USART5>;
 });
 
-/// take can telemetry frame, add necessary headers and relay to RocketLST via uart
-#[embassy_executor::task]
-async fn sender(mut can: RodosCanReceiver<4, RODOS_MAX_RAW_MSG_LEN>, mut lst: LSTSender<'static>) {
-
-    const RODOS_TM_REQ_TOPIC_ID: u16 = TopicId::TelemReq as u16;
-    const RODOS_TM_TOPIC_ID: u16 = TopicId::RawSend as u16;
-    const RODOS_CMD_TOPIC_ID: u16 = TopicId::Cmd as u16;
+/// take a beacon, add necessary headers and relay to RocketLST via uart
+#[embassy_executor::task(pool_size = 2)]
+async fn lst_sender_thread(
+    send_intervall: u64,
+    beacon: &'static Mutex<ThreadModeRawMutex, dyn DynBeacon>,
+    lst: &'static Mutex<ThreadModeRawMutex, LSTSender<'static>>) {
 
     loop {
+        info!("sending beacon");
+        
+        if let Err(e) = lst.lock().await.send(beacon.lock().await.bytes()).await {
+            error!("could not send via lsp {}", e);
+        }
+        Timer::after_millis(send_intervall).await;
+    }
+}
 
+// receive can messages and put them in the corresponding beacons
+#[embassy_executor::task]
+async fn can_receiver_thread(
+    mid_rate_beacon: &'static Mutex<ThreadModeRawMutex, dyn DynBeacon>,
+    mut can: RodosCanReceiver<RODOS_NUMBER_OF_SOURCES, RODOS_MAX_RAW_MSG_LEN>) {
+    loop {
         // receive from can
         match can.receive().await {
             Ok(frame) => {
-                match frame.topic() {
-                    RODOS_TM_TOPIC_ID => {
-                        let rodos_msg_len = frame.data()[0] as usize; // the first byte is the
-                                                                      // number of actually used
-                                                                      // bytes
-
-                        info!("send: {}", rodos_msg_len);
-
-                        if let Err(e) = lst.send(&frame.data()[1..rodos_msg_len+1]).await {
-                            error!("could not send via lsp {}", e);
-                        }
-                    },
-                    RODOS_CMD_TOPIC_ID => {
-                        if frame.data().len() < 3 {
-                            error!("bad cmd received");
-                            continue;
-                        }
-                        // match subsystem id
-                        if frame.data()[0] != LST_CMD_SUBSYS_ID {
-                            continue;
-                        }
-                        // match cmd
-                        match frame.data()[1] {
-                            0x00 => lst.send_cmd(LSTCmd::Reboot).await.unwrap_or_else(|e| {
-                                error!("could not execute cmd: {}", e);
-                            }),
-                            _ => error!("unknown cmd"),
-                        }
-                    }
-                    RODOS_TM_REQ_TOPIC_ID => {
-                        if let Err(e) = lst.send_cmd(LSTCmd::GetTelem).await {
-                            error!("could not send cmd {}", e);
-                        }
-                    },
-                    _ => {}
-                }
+                mid_rate_beacon.lock().await.insert_slice(tm::from_id(frame.topic() as u32), frame.data()).unwrap();
             }
             Err(e) => error!("error in can frame! {}", e),
         };
     }
 }
 
-/// receive data from RocketLST and transmit via can
+// access lst telemetry
 #[embassy_executor::task]
-async fn receiver(mut can: RodosCanSender, mut lst: LSTReceiver<'static>) {
-    let mut buffer = [0u8; 256];
+async fn telemetry_thread(
+    lst_beacon: &'static Mutex<ThreadModeRawMutex, dyn DynBeacon>,
+    lst: &'static Mutex<ThreadModeRawMutex, LSTSender<'static>>,
+    mut lst_recv: LSTReceiver<'static>) {
+    const LST_TM_INTERVALL_MS: u64 = 10_000;
+    let mut lst_buffer = [0u8; 64];
     loop {
-        match lst.receive(&mut buffer).await {
-            Ok(msg) => {
-                match msg {
-                    LSTMessage::Relay(range) => {
-                        let rodos_msg_len = min(RODOS_TC_MSG_LEN, range.len());
-                        
-                        info!("received: {}", rodos_msg_len);
-                        // add msg len to rodos msg
-                        let rodos_msg = &mut buffer[range.start - 1 .. range.start + rodos_msg_len];
-                        rodos_msg[0] = rodos_msg_len as u8;
-
-                        // otherwise send it via can to the rest of the system
-                        if let Err(e) = can.send(TopicId::RawRecv as u16, rodos_msg).await {
-                            error!("could not send frame via can: {}", e);
-                        }
-
-
+        lst.lock().await.send_cmd(LSTCmd::GetTelem).await.unwrap_or_else(|e| error!("could not send cmd to lst: {}", e));
+        loop {
+            match lst_recv.receive(&mut lst_buffer).await {
+                Ok(msg) => match msg {
+                    LSTMessage::Telem(tm) => {
+                        let mut lst_beacon = lst_beacon.lock().await;
+                        lst_beacon.insert(&tm::lst::Uptime, &tm.uptime).unwrap();
+                        lst_beacon.insert(&tm::lst::Rssi, &tm.rssi).unwrap();
+                        lst_beacon.insert(&tm::lst::Lqi, &tm.lqi).unwrap();
+                        lst_beacon.insert(&tm::lst::PacketsSend, &tm.packets_sent).unwrap();
+                        lst_beacon.insert(&tm::lst::PacketsGood, &tm.packets_good).unwrap();
+                        lst_beacon.insert(&tm::lst::PacketsBadChecksum, &tm.packets_rejected_checksum).unwrap();
+                        lst_beacon.insert(&tm::lst::PacketsBadOther, &tm.packets_rejected_other).unwrap();
+                        break;
                     }
-                    LSTMessage::Telem(telemetry) => {
-                        info!("telem {}", telemetry);
-                        let _ = can.send(TopicId::TelemUptime as u16, &telemetry.uptime.to_le_bytes()).await;
-                        let _ = can.send(TopicId::TelemRssi as u16, &telemetry.rssi.to_le_bytes()).await;
-                        let _ = can.send(TopicId::TelemLQI as u16, &telemetry.lqi.to_le_bytes()).await;
-                        let _ = can.send(TopicId::TelemPacketsSend as u16, &telemetry.packets_sent.to_le_bytes()).await;
-                        let _ = can.send(TopicId::TelemPacketsGood as u16, &telemetry.packets_good.to_le_bytes()).await;
-                        let _ = can.send(TopicId::TelemPacketsBadChecksum as u16, &telemetry.packets_rejected_checksum.to_le_bytes()).await;
-                        let _ = can.send(TopicId::TelemPacketsBadOther as u16, &telemetry.packets_rejected_other.to_le_bytes()).await;
-                    }
-                    LSTMessage::Ack => info!("ack :)"),
-                    LSTMessage::Nack => info!("nack :("),
-                    LSTMessage::Unknown(cmd) => error!("unknown lst msg received: {}", cmd),
-                }
-            }
-            Err(e) => {
-                error!("could receive from lst: {}", e);
+                    _ => (), // ignore all other messages for now
+                },
+                Err(e) => error!("could not receive from lst: {}", e),
             }
         }
+        Timer::after_millis(LST_TM_INTERVALL_MS).await;
     }
 }
 
@@ -203,11 +165,15 @@ async fn main(spawner: Spawner) {
 
     rodos_can_configurator
         .set_bitrate(1_000_000)
-        .add_receive_topic(TopicId::RawSend as u16, None).unwrap()
-        .add_receive_topic(TopicId::Cmd as u16, None).unwrap()
-        .add_receive_topic(TopicId::TelemReq as u16, None).unwrap();
+        .add_receive_topic(tm::eps::EnableBitmap.id() as u16, None).unwrap()
+        .add_receive_topic(tm::eps::AuxPowerVoltage.id() as u16, None).unwrap()
+        .add_receive_topic(tm::eps::InternalTemperature.id() as u16, None).unwrap()
+        .add_receive_topic(tm::eps::Bat1Voltage.id() as u16, None).unwrap()
+        .add_receive_topic(tm::eps::Bat2Voltage.id() as u16, None).unwrap()
+        .add_receive_topic(tm::eps::Bat1Temperature.id() as u16, None).unwrap()
+        .add_receive_topic(tm::eps::Bat2Temperature.id() as u16, None).unwrap();
 
-    let (can_reader, can_sender, _active_instance) = rodos_can_configurator
+    let (can_reader, _can_sender, _active_instance) = rodos_can_configurator
         .activate(
         TX_BUF.init(TxBuf::<TX_BUF_SIZE>::new()),
         RX_BUF.init(RxBuf::<RX_BUF_SIZE>::new()),
@@ -219,19 +185,6 @@ async fn main(spawner: Spawner) {
     // -- Uart configuration
     let mut uart_config = usart::Config::default();
     uart_config.baudrate = 115200;
-    //let (uart_tx, uart_rx) = Uart::new_with_rtscts(
-    //    p.USART6,
-    //    p.PA5,
-    //    p.PA4,
-    //    Irqs,
-    //    p.PA7,
-    //    p.PA6,
-    //    p.DMA1_CH1,
-    //    p.DMA1_CH2,
-    //    uart_config,
-    //)
-    //.unwrap()
-    //.split();
     
     let (uart_tx, uart_rx) = Uart::new(p.USART5,
         p.PB4, p.PB3,
@@ -239,12 +192,22 @@ async fn main(spawner: Spawner) {
         p.DMA1_CH1, p.DMA1_CH2,
         uart_config).unwrap().split();
 
-    let lst_tx = LSTSender::new(uart_tx);
+    let lst_tx = LST.init(Mutex::new(LSTSender::new(uart_tx)));
     let lst_rx = LSTReceiver::new(uart_rx);
 
+    // -- Beacons
+    let low_rate_beacon = LRB.init(Mutex::new(LowRateTelemetry::new()));
+    let mid_rate_beacon = MRB.init(Mutex::new(MidRateTelemetry::new()));
+
+    // Startup
     spawner.must_spawn(petter(watchdog));
-    spawner.must_spawn(sender(can_reader, lst_tx));
-    spawner.must_spawn(receiver(can_sender, lst_rx));
+    spawner.must_spawn(can_receiver_thread(mid_rate_beacon, can_reader));
+
+    // LST sender startup
+    Timer::after_millis(STARTUP_DELAY).await;
+    spawner.must_spawn(telemetry_thread(low_rate_beacon, lst_tx, lst_rx));
+    spawner.must_spawn(lst_sender_thread(10_000, low_rate_beacon, lst_tx));
+    spawner.must_spawn(lst_sender_thread(1_000, mid_rate_beacon, lst_tx));
 
     core::future::pending::<()>().await;
 }
