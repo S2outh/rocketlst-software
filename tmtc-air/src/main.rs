@@ -3,27 +3,28 @@
 
 mod lst_sender;
 mod lst_receiver;
+mod can_config;
 
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, mutex::Mutex};
 use tmtc_definitions::telemetry as tm;
 
 use embassy_time::Timer;
-use rodos_can_interface::{RodosCanInterface, receiver::RodosCanReceiver};
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::{
-    bind_interrupts, can::{self, CanConfigurator, RxBuf, TxBuf}, gpio::{Level, Output, Speed}, peripherals::*, rcc::{self, mux::Fdcansel}, usart::{self, Uart}, wdg::IndependentWatchdog, Config
+    Config, bind_interrupts, can::{self, BufferedFdCanReceiver, CanConfigurator, RxFdBuf, TxFdBuf}, gpio::{Level, Output, Speed}, peripherals::*, rcc::{self, mux::Fdcansel}, usart::{self, Uart}, wdg::IndependentWatchdog
 };
-use tmtc_definitions::{DynBeacon, DynTelemetryDefinition, LowRateTelemetry, MidRateTelemetry};
+use tmtc_definitions::{DynBeacon, LowRateTelemetry, MidRateTelemetry};
 
-use crate::lst_receiver::LSTMessage;
+
+use crate::can_config::CanPeriphConfig;
 
 use {defmt_rtt as _, panic_probe as _};
 
 use static_cell::StaticCell;
 
 use lst_sender::{LSTSender, LSTCmd};
-use lst_receiver::LSTReceiver;
+use lst_receiver::{LSTReceiver, LSTMessage};
 
 // General setup stuff
 const STARTUP_DELAY: u64 = 1000;
@@ -34,16 +35,11 @@ static MRB: StaticCell<Mutex<ThreadModeRawMutex, MidRateTelemetry>> = StaticCell
 static LST: StaticCell<Mutex<ThreadModeRawMutex, LSTSender>> = StaticCell::new();
 
 // Can setup stuff
-const RODOS_DEVICE_ID: u8 = 0x01;
-
-const RODOS_NUMBER_OF_SOURCES: usize = 8;
-const RODOS_MAX_RAW_MSG_LEN: usize = 2;
-
 const RX_BUF_SIZE: usize = 500;
 const TX_BUF_SIZE: usize = 30;
 
-static RX_BUF: StaticCell<embassy_stm32::can::RxBuf<RX_BUF_SIZE>> = StaticCell::new();
-static TX_BUF: StaticCell<embassy_stm32::can::TxBuf<TX_BUF_SIZE>> = StaticCell::new();
+static RX_BUF: StaticCell<RxFdBuf<RX_BUF_SIZE>> = StaticCell::new();
+static TX_BUF: StaticCell<TxFdBuf<TX_BUF_SIZE>> = StaticCell::new();
 
 // bin can interrupts
 bind_interrupts!(struct Irqs {
@@ -73,12 +69,15 @@ async fn lst_sender_thread(
 #[embassy_executor::task]
 async fn can_receiver_thread(
     mid_rate_beacon: &'static Mutex<ThreadModeRawMutex, dyn DynBeacon>,
-    mut can: RodosCanReceiver<RODOS_NUMBER_OF_SOURCES, RODOS_MAX_RAW_MSG_LEN>) {
+    can: BufferedFdCanReceiver) {
     loop {
         // receive from can
         match can.receive().await {
-            Ok(frame) => {
-                mid_rate_beacon.lock().await.insert_slice(tm::from_id(frame.topic() as u32), frame.data()).unwrap();
+            Ok(envelope) => {
+                if let embedded_can::Id::Standard(id) = envelope.frame.id() {
+                    mid_rate_beacon.lock().await.insert_slice(tm::from_id(id.as_raw()), envelope.frame.data()).unwrap();
+                }
+                else { defmt::unreachable!() };
             }
             Err(e) => error!("error in can frame! {}", e),
         };
@@ -162,26 +161,18 @@ async fn main(spawner: Spawner) {
     watchdog.unleash();
 
     // -- CAN configuration
-    let mut rodos_can_configurator = RodosCanInterface::new(
+    let mut can_configurator = CanPeriphConfig::new(
         CanConfigurator::new(p.FDCAN1, p.PA11, p.PA12, Irqs),
-        RODOS_DEVICE_ID,
     );
 
-    rodos_can_configurator
+    can_configurator
         .set_bitrate(1_000_000)
-        .add_receive_topic(tm::eps::EnableBitmap.id() as u16, None).unwrap()
-        .add_receive_topic(tm::eps::AuxPowerVoltage.id() as u16, None).unwrap()
-        .add_receive_topic(tm::eps::InternalTemperature.id() as u16, None).unwrap()
-        .add_receive_topic(tm::eps::Bat1Voltage.id() as u16, None).unwrap()
-        .add_receive_topic(tm::eps::Bat2Voltage.id() as u16, None).unwrap()
-        .add_receive_topic(tm::eps::Bat1Temperature.id() as u16, None).unwrap()
-        .add_receive_topic(tm::eps::Bat2Temperature.id() as u16, None).unwrap();
+        .add_receive_topic_range(tm::id_range()).unwrap();
 
-    let (can_reader, _can_sender, _active_instance) = rodos_can_configurator
-        .activate(
-        TX_BUF.init(TxBuf::<TX_BUF_SIZE>::new()),
-        RX_BUF.init(RxBuf::<RX_BUF_SIZE>::new()),
-    ).split_buffered();
+    let can_instance = can_configurator.activate(
+        TX_BUF.init(TxFdBuf::<TX_BUF_SIZE>::new()),
+        RX_BUF.init(RxFdBuf::<RX_BUF_SIZE>::new()),
+    );
 
     // set can standby pin to low
     let _can_standby = Output::new(p.PA10, Level::Low, Speed::Low);
@@ -205,7 +196,7 @@ async fn main(spawner: Spawner) {
 
     // Startup
     spawner.must_spawn(petter(watchdog));
-    spawner.must_spawn(can_receiver_thread(mid_rate_beacon, can_reader));
+    spawner.must_spawn(can_receiver_thread(mid_rate_beacon, can_instance.reader()));
 
     // LST sender startup
     Timer::after_millis(STARTUP_DELAY).await;

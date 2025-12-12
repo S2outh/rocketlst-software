@@ -24,7 +24,6 @@ embedded-io-async = { version = "0.6.1" }
 embedded-can = "0.4.1"
 static_cell = "2.1.1"
 
-rodos_can_interface = { version = "1.0.0", features = ["stm32g0b1ke"], default-features = false }
 tmtc-definitions = { version = "0.1.0", git = "ssh://git@github.com/S2outh/tmtc-definitions.git" }
 
 [profile.release]

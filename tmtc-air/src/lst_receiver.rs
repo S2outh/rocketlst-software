@@ -1,7 +1,7 @@
 use core::ops::Range;
 
 use embassy_stm32::{mode::Async, usart::{Error, UartRx}};
-use defmt::{Format, println};
+use defmt::Format;
 
 const HEADER_LEN: usize = 8;
 
