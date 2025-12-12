@@ -5,7 +5,7 @@ use heapless::Vec;
 
 /// Can peripheral in configuration stage
 pub struct CanPeriphConfig<'d> {
-    filters: Vec<StandardFilter, 8>,
+    filters: Vec<StandardFilter, 28>,
     configurator: CanConfigurator<'d>
 }
 
@@ -36,6 +36,8 @@ impl<'d> CanPeriphConfig<'d> {
             can::config::FdCanConfig::default()
                 .set_global_filter(can::config::GlobalFilter::reject_all()),
         );
+        configurator.set_bitrate(1_000_000);
+        configurator.set_fd_data_bitrate(2_000_000, false);
 
         let filters = Vec::new();
         Self {
@@ -57,9 +59,12 @@ impl<'d> CanPeriphConfig<'d> {
     }
     /// # add topic filter range
     pub fn add_receive_topic_range(&mut self, range: (u16, u16)) -> Result<&mut Self, FiltersFullError> {
+        // Can filter ranges are inverted in embassy (from high to low)
+        // I don't know if this is due to bosch engineers beeing high or due to embassy devs being
+        // high, however I do know that _someone_ was high.
         let filter = FilterType::Range {
-            from: StandardId::new(range.0).unwrap(),
-            to: StandardId::new(range.1).unwrap(),
+            from: StandardId::new(range.1).unwrap(),
+            to: StandardId::new(range.0).unwrap(),
         };
         let standard_filter = StandardFilter {
             filter,
@@ -67,15 +72,6 @@ impl<'d> CanPeriphConfig<'d> {
         };
         self.filters.push(standard_filter).map_err(|_| FiltersFullError)?;
         Ok(self)
-    }
-    /// # set can bitrate
-    ///
-    /// This function simply calls the set_fd_data_bitrate function on the can configurator.
-    /// In principle it does not matter whether you use this function or simply call
-    /// set_fd_data_bitrate on the configurator before passing it to ::new()
-    pub fn set_bitrate(&mut self, bitrate: u32) -> &mut Self {
-        self.configurator.set_fd_data_bitrate(bitrate, true);
-        self
     }
     /// # Activate the can transmitter for sending and receiving
     /// returning a bufferedSender and a bufferedReceiver

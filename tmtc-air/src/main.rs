@@ -166,7 +166,6 @@ async fn main(spawner: Spawner) {
     );
 
     can_configurator
-        .set_bitrate(1_000_000)
         .add_receive_topic_range(tm::id_range()).unwrap();
 
     let can_instance = can_configurator.activate(
