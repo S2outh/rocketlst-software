@@ -24,7 +24,7 @@ embedded-io-async = { version = "0.6.1" }
 embedded-can = "0.4.1"
 static_cell = "2.1.1"
 
-tmtc-definitions = { version = "0.1.0", git = "ssh://git@github.com/S2outh/tmtc-definitions.git" }
+south-common = { version = "0.2.0", git = "ssh://git@github.com/S2outh/south-common.git" }
 
 [profile.release]
 debug = 2
