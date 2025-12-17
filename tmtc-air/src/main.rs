@@ -82,7 +82,7 @@ async fn can_receiver_thread(
 // access lst telemetry
 #[embassy_executor::task]
 async fn telemetry_thread(
-    lst_beacon: &'static Mutex<ThreadModeRawMutex, dyn DynBeacon>,
+    lst_beacon: &'static Mutex<ThreadModeRawMutex, LowRateTelemetry>,
     lst: &'static Mutex<ThreadModeRawMutex, LSTSender<'static>>,
     mut lst_recv: LSTReceiver<'static>) {
     const LST_TM_INTERVALL_MS: u64 = 10_000;
@@ -95,13 +95,13 @@ async fn telemetry_thread(
                     LSTMessage::Telem(tm) => {
                         info!("received lst telem msg: {}", tm);
                         let mut lst_beacon = lst_beacon.lock().await;
-                        lst_beacon.insert(&tm::lst::Uptime, &tm.uptime).unwrap();
-                        lst_beacon.insert(&tm::lst::Rssi, &tm.rssi).unwrap();
-                        lst_beacon.insert(&tm::lst::Lqi, &tm.lqi).unwrap();
-                        lst_beacon.insert(&tm::lst::PacketsSend, &tm.packets_sent).unwrap();
-                        lst_beacon.insert(&tm::lst::PacketsGood, &tm.packets_good).unwrap();
-                        lst_beacon.insert(&tm::lst::PacketsBadChecksum, &tm.packets_rejected_checksum).unwrap();
-                        lst_beacon.insert(&tm::lst::PacketsBadOther, &tm.packets_rejected_other).unwrap();
+                        lst_beacon.uptime = tm.uptime;
+                        lst_beacon.rssi = tm.rssi;
+                        lst_beacon.lqi = tm.lqi;
+                        lst_beacon.packets_send = tm.packets_sent;
+                        lst_beacon.packets_good = tm.packets_good;
+                        lst_beacon.packets_bad_checksum = tm.packets_rejected_checksum;
+                        lst_beacon.packets_bad_other = tm.packets_rejected_other;
                         break;
                     }
                     _ => (), // ignore all other messages for now
