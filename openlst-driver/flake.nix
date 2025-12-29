@@ -1,0 +1,58 @@
+{
+  description = "embassy g0b1 flake";
+
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    flake-utils.url = "github:numtide/flake-utils";
+    fenix = {
+      url = "github:nix-community/fenix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+  };
+
+  outputs = { self, nixpkgs, fenix, flake-utils }:
+    flake-utils.lib.eachDefaultSystem (system:
+      let
+        pkgs = import nixpkgs {
+          inherit system;
+          overlays = [ fenix.overlays.default ];
+        };
+      in
+      {
+        devShells.default =
+        let
+          toolchain = pkgs.fenix.toolchainOf {
+            channel = "nightly";
+            date = "2025-12-22";
+            sha256 = "sha256-tPN58hOEtiHTamD0DNmwQHk1g1w1qx7SPr3yecbcOF8=";
+          };
+          lib = pkgs.fenix.targets.thumbv6m-none-eabi.toolchainOf {
+            channel = "nightly";
+            date = "2025-12-22";
+            sha256 = "sha256-tPN58hOEtiHTamD0DNmwQHk1g1w1qx7SPr3yecbcOF8=";
+          };
+          rust = pkgs.fenix.combine [
+            toolchain.rustc
+            toolchain.cargo
+            toolchain.rustfmt
+            toolchain.clippy
+            lib.rust-std
+          ];
+        in
+        pkgs.mkShell {
+          buildInputs = with pkgs; [
+            rust
+
+            # for flashing
+            probe-rs-tools
+
+            # for external deps
+            pkg-config
+          ];
+
+					# set default defmt log level
+					DEFMT_LOG = "info";
+        };
+      }
+    );
+}

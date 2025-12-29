@@ -1,25 +1,31 @@
 #![no_std]
 #![no_main]
 
-mod lst_sender;
-mod lst_receiver;
-
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, mutex::Mutex};
 
-use embassy_time::Timer;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::{
-    Config, bind_interrupts, can::{self, BufferedFdCanReceiver, CanConfigurator, RxFdBuf, TxFdBuf}, crc::{self, Crc}, gpio::{Level, Output, Speed}, peripherals::*, rcc::{self, mux::Fdcansel}, usart::{self, Uart}, wdg::IndependentWatchdog
+    Config, bind_interrupts,
+    can::{self, BufferedFdCanReceiver, CanConfigurator, RxFdBuf, TxFdBuf},
+    crc::{self, Crc},
+    gpio::{Level, Output, Speed},
+    peripherals::*,
+    rcc::{self, mux::Fdcansel},
+    usart::{self, BufferedUart, BufferedUartTx, BufferedUartRx},
+    wdg::IndependentWatchdog,
 };
-use south_common::{telemetry as tm, can_config::CanPeriphConfig, DynBeacon, LowRateTelemetry, MidRateTelemetry};
+use embassy_time::Timer;
+use south_common::{
+    DynBeacon, LowRateTelemetry, MidRateTelemetry, can_config::CanPeriphConfig, telemetry as tm,
+};
 
 use {defmt_rtt as _, panic_probe as _};
 
 use static_cell::StaticCell;
 
-use lst_sender::{LSTSender, LSTCmd};
-use lst_receiver::{LSTReceiver, LSTMessage};
+use openlst_driver::lst_receiver::{LSTMessage, LSTReceiver};
+use openlst_driver::lst_sender::{LSTCmd, LSTSender};
 
 // General setup stuff
 const STARTUP_DELAY: u64 = 1000;
@@ -27,21 +33,29 @@ const STARTUP_DELAY: u64 = 1000;
 // Static object allocation
 static LRB: StaticCell<Mutex<ThreadModeRawMutex, LowRateTelemetry>> = StaticCell::new();
 static MRB: StaticCell<Mutex<ThreadModeRawMutex, MidRateTelemetry>> = StaticCell::new();
-static LST: StaticCell<Mutex<ThreadModeRawMutex, LSTSender>> = StaticCell::new();
+static LST: StaticCell<Mutex<ThreadModeRawMutex, LSTSender<BufferedUartTx<'static>>>> =
+    StaticCell::new();
 static CRC: StaticCell<Mutex<ThreadModeRawMutex, Crc>> = StaticCell::new();
 
-// Can setup stuff
-const RX_BUF_SIZE: usize = 500;
-const TX_BUF_SIZE: usize = 30;
+// Can static buffer
+const C_RX_BUF_SIZE: usize = 500;
+const C_TX_BUF_SIZE: usize = 30;
 
-static RX_BUF: StaticCell<RxFdBuf<RX_BUF_SIZE>> = StaticCell::new();
-static TX_BUF: StaticCell<TxFdBuf<TX_BUF_SIZE>> = StaticCell::new();
+static C_RX_BUF: StaticCell<RxFdBuf<C_RX_BUF_SIZE>> = StaticCell::new();
+static C_TX_BUF: StaticCell<TxFdBuf<C_TX_BUF_SIZE>> = StaticCell::new();
+
+// Uart static buffer
+const S_RX_BUF_SIZE: usize = 256;
+const S_TX_BUF_SIZE: usize = 256;
+
+static S_RX_BUF: StaticCell<[u8; S_RX_BUF_SIZE]> = StaticCell::new();
+static S_TX_BUF: StaticCell<[u8; S_TX_BUF_SIZE]> = StaticCell::new();
 
 // bin can interrupts
 bind_interrupts!(struct Irqs {
     TIM16_FDCAN_IT0 => can::IT0InterruptHandler<FDCAN1>;
     TIM17_FDCAN_IT1 => can::IT1InterruptHandler<FDCAN1>;
-    USART3_4_5_6_LPUART1 => usart::InterruptHandler<USART5>;
+    USART3_4_5_6_LPUART1 => usart::BufferedInterruptHandler<USART5>;
 });
 
 /// take a beacon, add necessary headers and relay to RocketLST via uart
@@ -50,8 +64,8 @@ async fn lst_sender_thread(
     send_intervall: u64,
     beacon: &'static Mutex<ThreadModeRawMutex, dyn DynBeacon>,
     crc: &'static Mutex<ThreadModeRawMutex, Crc<'static>>,
-    lst: &'static Mutex<ThreadModeRawMutex, LSTSender<'static>>) {
-
+    lst: &'static Mutex<ThreadModeRawMutex, LSTSender<BufferedUartTx<'static>>>,
+) {
     loop {
         info!("sending beacon");
         let mut beacon = beacon.lock().await;
@@ -64,7 +78,7 @@ async fn lst_sender_thread(
         };
 
         if let Err(e) = lst.lock().await.send(bytes).await {
-            error!("could not send via lsp {}", e);
+            error!("could not send via lsp: {}", e);
         }
         Timer::after_millis(send_intervall).await;
     }
@@ -74,15 +88,21 @@ async fn lst_sender_thread(
 #[embassy_executor::task]
 async fn can_receiver_thread(
     mid_rate_beacon: &'static Mutex<ThreadModeRawMutex, dyn DynBeacon>,
-    can: BufferedFdCanReceiver) {
+    can: BufferedFdCanReceiver,
+) {
     loop {
         // receive from can
         match can.receive().await {
             Ok(envelope) => {
                 if let embedded_can::Id::Standard(id) = envelope.frame.id() {
-                    mid_rate_beacon.lock().await.insert_slice(tm::from_id(id.as_raw()).unwrap(), envelope.frame.data()).unwrap();
-                }
-                else { defmt::unreachable!() };
+                    mid_rate_beacon
+                        .lock()
+                        .await
+                        .insert_slice(tm::from_id(id.as_raw()).unwrap(), envelope.frame.data())
+                        .unwrap();
+                } else {
+                    defmt::unreachable!()
+                };
             }
             Err(e) => error!("error in can frame! {}", e),
         };
@@ -93,14 +113,18 @@ async fn can_receiver_thread(
 #[embassy_executor::task]
 async fn telemetry_thread(
     lst_beacon: &'static Mutex<ThreadModeRawMutex, LowRateTelemetry>,
-    lst: &'static Mutex<ThreadModeRawMutex, LSTSender<'static>>,
-    mut lst_recv: LSTReceiver<'static>) {
+    lst: &'static Mutex<ThreadModeRawMutex, LSTSender<BufferedUartTx<'static>>>,
+    mut lst_recv: LSTReceiver<BufferedUartRx<'static>>,
+) {
     const LST_TM_INTERVALL_MS: u64 = 10_000;
-    let mut lst_buffer = [0u8; 64];
     loop {
-        lst.lock().await.send_cmd(LSTCmd::GetTelem).await.unwrap_or_else(|e| error!("could not send cmd to lst: {}", e));
+        lst.lock()
+            .await
+            .send_cmd(LSTCmd::GetTelem)
+            .await
+            .unwrap_or_else(|e| error!("could not send cmd to lst: {}", e));
         loop {
-            match lst_recv.receive(&mut lst_buffer).await {
+            match lst_recv.receive().await {
                 Ok(msg) => match msg {
                     LSTMessage::Telem(tm) => {
                         info!("received lst telem msg: {}", tm);
@@ -119,7 +143,7 @@ async fn telemetry_thread(
                 Err(e) => {
                     error!("could not receive from lst: {}", e);
                     break;
-                },
+                }
             }
         }
         Timer::after_millis(LST_TM_INTERVALL_MS).await;
@@ -139,7 +163,9 @@ async fn petter(mut watchdog: IndependentWatchdog<'static, IWDG>) {
 /// all messages can be received without package drop
 fn get_rcc_config() -> rcc::Config {
     let mut rcc_config = rcc::Config::default();
-    rcc_config.hsi = Some(rcc::Hsi { sys_div: rcc::HsiSysDiv::DIV1 });
+    rcc_config.hsi = Some(rcc::Hsi {
+        sys_div: rcc::HsiSysDiv::DIV1,
+    });
     rcc_config.sys = rcc::Sysclk::PLL1_R;
     rcc_config.pll = Some(rcc::Pll {
         source: rcc::PllSource::HSI,
@@ -161,7 +187,8 @@ fn get_crc_config() -> crc::Config {
         crc::PolySize::Width16,
         0xFFFF,
         0x1021,
-    ).unwrap()
+    )
+    .unwrap()
 }
 
 /// program entry
@@ -171,22 +198,22 @@ async fn main(spawner: Spawner) {
     config.rcc = get_rcc_config();
     let p = embassy_stm32::init(config);
     info!("Launching");
-    
+
     // independent watchdog with timeout 300 MS
     let mut watchdog = IndependentWatchdog::new(p.IWDG, 300_000);
     watchdog.unleash();
 
     // -- CAN configuration
-    let mut can_configurator = CanPeriphConfig::new(
-        CanConfigurator::new(p.FDCAN1, p.PA11, p.PA12, Irqs),
-    );
+    let mut can_configurator =
+        CanPeriphConfig::new(CanConfigurator::new(p.FDCAN1, p.PA11, p.PA12, Irqs));
 
     can_configurator
-        .add_receive_topic_range(tm::id_range()).unwrap();
+        .add_receive_topic_range(tm::id_range())
+        .unwrap();
 
     let can_instance = can_configurator.activate(
-        TX_BUF.init(TxFdBuf::<TX_BUF_SIZE>::new()),
-        RX_BUF.init(RxFdBuf::<RX_BUF_SIZE>::new()),
+        C_TX_BUF.init(TxFdBuf::<C_TX_BUF_SIZE>::new()),
+        C_RX_BUF.init(RxFdBuf::<C_RX_BUF_SIZE>::new()),
     );
 
     // set can standby pin to low
@@ -195,12 +222,18 @@ async fn main(spawner: Spawner) {
     // -- Uart configuration
     let mut uart_config = usart::Config::default();
     uart_config.baudrate = 115200;
-    
-    let (uart_tx, uart_rx) = Uart::new(p.USART5,
-        p.PB4, p.PB3,
+
+    let (uart_tx, uart_rx) = BufferedUart::new(
+        p.USART5,
+        p.PB4,
+        p.PB3,
+        S_TX_BUF.init([0u8; S_TX_BUF_SIZE]),
+        S_RX_BUF.init([0u8; S_RX_BUF_SIZE]),
         Irqs,
-        p.DMA1_CH1, p.DMA1_CH2,
-        uart_config).unwrap().split();
+        uart_config,
+    )
+    .unwrap()
+    .split();
 
     let lst_tx = LST.init(Mutex::new(LSTSender::new(uart_tx)));
     let lst_rx = LSTReceiver::new(uart_rx);
