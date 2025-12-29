@@ -19,7 +19,7 @@ pub struct LSTSender<S: Write> {
     seq_num: u16,
 }
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[cfg_attr(feature = "std", derive(Debug, Derive))]
+#[cfg_attr(feature = "std", derive(Debug))]
 pub enum SenderError<UartError> {
     MessageTooLongError,
     UartError(UartError),
