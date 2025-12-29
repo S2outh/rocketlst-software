@@ -19,11 +19,13 @@ pub struct LSTReceiver<S: Read> {
     remaining_range: Range<usize>
 }
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "std", derive(Debug, Derive))]
 pub enum ReceiverError<UartError> {
     ParseError(&'static str),
     UartError(UartError),
 }
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "std", derive(Debug, Derive))]
 pub struct LSTTelemetry {
     pub uptime: u32,
     pub rssi: i8,

@@ -5,6 +5,7 @@ edition = "2024"
 
 [features]
 defmt = [ "dep:defmt" ]
+std = []
 
 [dependencies]
 heapless = { version = "0.9", default-features = false }
