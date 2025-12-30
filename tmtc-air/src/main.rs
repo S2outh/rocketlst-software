@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
 
+use embassy_futures::select::{Either, select};
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, mutex::Mutex};
 
 use defmt::*;
@@ -58,21 +59,6 @@ bind_interrupts!(struct Irqs {
     USART3_4_5_6_LPUART1 => usart::BufferedInterruptHandler<USART5>;
 });
 
-fn crc_ccitt(bytes: &[u8]) -> u16 {
-    let mut crc: u16 = 0xFFFF;
-    for byte in bytes {
-        crc ^= (*byte as u16) << 8;
-        for _ in 0..8 {
-            if (crc & 0x8000) != 0 {
-                crc = (crc << 1) ^ 0x1021;
-            } else {
-                crc <<= 1;
-            }
-        }
-    }
-    crc
-}
-
 /// take a beacon, add necessary headers and relay to RocketLST via uart
 #[embassy_executor::task(pool_size = 2)]
 async fn lst_sender_thread(
@@ -89,13 +75,13 @@ async fn lst_sender_thread(
             let mut crc = crc.lock().await;
             crc.reset();
             let mut crc_func = |bytes: &[u8]| crc.feed_bytes(bytes) as u16;
-            beacon.bytes(&mut crc_ccitt)
+            beacon.bytes(&mut crc_func)
         };
-        println!("{}", bytes.len());
 
         if let Err(e) = lst.lock().await.send(bytes).await {
             error!("could not send via lsp: {}", e);
         }
+        drop(beacon);
         Timer::after_millis(send_intervall).await;
     }
 }
@@ -132,15 +118,21 @@ async fn telemetry_thread(
     lst: &'static Mutex<ThreadModeRawMutex, LSTSender<BufferedUartTx<'static>>>,
     mut lst_recv: LSTReceiver<BufferedUartRx<'static>>,
 ) {
-    const LST_TM_INTERVALL_MS: u64 = 10_000;
+    const LST_TM_INTERVALL_MS: u64 = 3_000;
+    const LST_TM_TIMEOUT_MS: u64 = 3_000;
     loop {
+        println!("test");
         lst.lock()
             .await
             .send_cmd(LSTCmd::GetTelem)
             .await
             .unwrap_or_else(|e| error!("could not send cmd to lst: {}", e));
-        loop {
-            match lst_recv.receive().await {
+        let answer = select(
+            lst_recv.receive(),
+            Timer::after_millis(LST_TM_TIMEOUT_MS)
+        ).await;
+        if let Either::First(lst_answer) = answer {
+            match lst_answer {
                 Ok(msg) => match msg {
                     LSTMessage::Telem(tm) => {
                         info!("received lst telem msg: {}", tm);
@@ -152,16 +144,20 @@ async fn telemetry_thread(
                         lst_beacon.packets_good = tm.packets_good;
                         lst_beacon.packets_bad_checksum = tm.packets_rejected_checksum;
                         lst_beacon.packets_bad_other = tm.packets_rejected_other;
-                        break;
                     }
-                    _ => (), // ignore all other messages for now
+                    LSTMessage::Ack => info!("ack"),
+                    LSTMessage::Nack => info!("nack"),
+                    LSTMessage::Unknown(a) => info!("unknown: {}", a),
+                    LSTMessage::Relay(_) => info!("relay"),
                 },
                 Err(e) => {
                     error!("could not receive from lst: {}", e);
-                    break;
                 }
             }
+        } else {
+            lst_recv.reset();
         }
+        
         Timer::after_millis(LST_TM_INTERVALL_MS).await;
     }
 }

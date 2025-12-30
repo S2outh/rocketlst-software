@@ -1,12 +1,11 @@
 use embedded_io_async::Read;
-use core::ops::Range;
 
 mod framer;
-use framer::{Framer, Resp};
+use framer::Framer;
 
-const HEADER_LEN: usize = 8;
+const HEADER_LEN: usize = 5;
 
-const DESTINATION_PTR: usize = 0x07;
+const DESTINATION_PTR: usize = 0x04;
 const DESTINATION_RELAY: u8 = 0x11;
 const DESTINATION_LOCAL: u8 = 0x01;
 
@@ -16,7 +15,6 @@ pub struct LSTReceiver<S: Read> {
     uart_rx: S,
     framer: Framer,
     buf: [u8; MAX_LEN],
-    remaining_range: Range<usize>
 }
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[cfg_attr(feature = "std", derive(Debug))]
@@ -45,7 +43,7 @@ pub enum LSTMessage<'a> {
 
 impl<S: Read> LSTReceiver<S> {
     pub fn new(uart_rx: S) -> Self {
-        Self { uart_rx, framer: Framer::new(), buf: [0; MAX_LEN], remaining_range: 0..0 }
+        Self { uart_rx, framer: Framer::new(), buf: [0u8; MAX_LEN] }
     }
     fn parse_telem(msg: &[u8]) -> Result<LSTTelemetry, ReceiverError<S::Error>> {
         // 62 bytes
@@ -74,39 +72,21 @@ impl<S: Read> LSTReceiver<S> {
         })
     }
     pub async fn receive(&mut self) -> Result<LSTMessage<'_>, ReceiverError<S::Error>> {
-        self.buf.copy_within(self.remaining_range.clone(), 0);
-        let mut additional_len = self.remaining_range.len();
         loop {
-            let mut strt_pos = self.framer.ptr;
-            let uart_len = self.uart_rx.read(&mut self.buf[strt_pos..]).await.map_err(|e| ReceiverError::UartError(e))?;
-            let mut len = uart_len + additional_len;
-            additional_len = 0;
-            loop {
-                if let Some(result) = self.framer.push(&self.buf, len) {
-                    match result {
-                        Resp::Synced(ptr) => {
-                            if ptr != 0 {
-                                self.buf.copy_within(ptr..strt_pos+len, 0);
-                                len -= ptr - strt_pos;
-                            }
-                            strt_pos = self.framer.ptr;
-                        }
-                        Resp::Frame(ptr) => {
-                            self.remaining_range = ptr..strt_pos+len;
-
-                            return Ok(match self.buf[DESTINATION_PTR] {
-                                // msg comming from this lst, not relay
-                                DESTINATION_LOCAL => Self::parse_local_msg(&self.buf[HEADER_LEN..ptr])?,
-                                // msg received from other lst
-                                DESTINATION_RELAY => LSTMessage::Relay(&self.buf[HEADER_LEN..ptr]),
-                                _ => LSTMessage::Unknown(0x00)
-                            });
-                        }
-                    }
-                } else {
-                    break;
-                }
+            let mut read_buf = [0u8; 1];
+            self.uart_rx.read(&mut read_buf).await.map_err(|e| ReceiverError::UartError(e))?;
+            if let Some(len) = self.framer.push(read_buf[0], &mut self.buf[..]) {
+                return Ok(match self.buf[DESTINATION_PTR] {
+                    // msg comming from this lst, not relay
+                    DESTINATION_LOCAL => Self::parse_local_msg(&self.buf[HEADER_LEN..len])?,
+                    // msg received from other lst
+                    DESTINATION_RELAY => LSTMessage::Relay(&self.buf[HEADER_LEN..len]),
+                    _ => LSTMessage::Unknown(0x00)
+                });
             }
         }
+    }
+    pub fn reset(&mut self) {
+        self.framer.reset();
     }
 }
