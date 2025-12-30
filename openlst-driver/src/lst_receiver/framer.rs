@@ -1,4 +1,4 @@
-const MAGIC: [u8; 2] = [0xAA, 0x55];
+const MAGIC: [u8; 2] = [0x22, 0x69];
 
 enum State {
     Sync { magic_pos: usize }, // searching for magic
@@ -33,9 +33,9 @@ impl Framer {
                     if *byte == MAGIC[*magic_pos] {
                         *magic_pos += 1;
                         if *magic_pos == MAGIC.len() {
-                            self.state = State::Len;
                             let synced_ptr = self.ptr - MAGIC.len();
-                            self.ptr = 0;
+                            self.ptr = *magic_pos;
+                            self.state = State::Len;
                             return Some(Resp::Synced(synced_ptr));
                         }
                     } else {
@@ -45,15 +45,20 @@ impl Framer {
 
                 State::Len => {
                     let len = *byte as usize;
-                    self.state = State::Payload { len, pos: 0 };
+                    if len == 0 {
+                        self.state = State::Sync { magic_pos: 0 };
+                    }
+                    else {
+                        self.state = State::Payload { len, pos: 0 };
+                    }
                 }
 
                 State::Payload { len, ref mut pos } => {
                     *pos += 1;
-
-                    if *pos == len {
+                    if *pos >= len {
                         let frame_ptr = self.ptr;
                         self.ptr = 0;
+                        self.state = State::Sync { magic_pos: 0 };
                         return Some(Resp::Frame(frame_ptr));
                     }
                 }

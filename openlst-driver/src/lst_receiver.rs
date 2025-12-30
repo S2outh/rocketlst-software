@@ -77,26 +77,38 @@ impl<S: Read> LSTReceiver<S> {
         self.buf.copy_within(self.remaining_range.clone(), 0);
         let mut additional_len = self.remaining_range.len();
         loop {
-            let strt_pos = self.framer.ptr;
+            let mut strt_pos = self.framer.ptr;
             let uart_len = self.uart_rx.read(&mut self.buf[strt_pos..]).await.map_err(|e| ReceiverError::UartError(e))?;
-            let len = uart_len + additional_len;
+            let mut len = uart_len + additional_len;
             additional_len = 0;
-            if let Some(result) = self.framer.push(&self.buf, len) {
-                match result {
-                    Resp::Synced(ptr) => {
-                        self.buf.copy_within(ptr..strt_pos+len, 0);
-                    }
-                    Resp::Frame(ptr) => {
-                        self.remaining_range = ptr..strt_pos+len;
+            loop {
+                if let Some(result) = self.framer.push(&self.buf, len) {
+                    match result {
+                        Resp::Synced(ptr) => {
+                            println!("sync");
+                            println!("{}, {}, {}", ptr, strt_pos, len);
+                            if ptr != 0 {
+                                self.buf.copy_within(ptr..strt_pos+len, 0);
+                                len -= ptr - strt_pos;
+                            }
+                            strt_pos = self.framer.ptr;
+                        }
+                        Resp::Frame(ptr) => {
+                            println!("frame");
+                            println!("{}, {}, {}", ptr, strt_pos, len);
+                            self.remaining_range = ptr..strt_pos+len;
 
-                        return Ok(match self.buf[DESTINATION_PTR] {
-                            // msg comming from this lst, not relay
-                            DESTINATION_LOCAL => Self::parse_local_msg(&self.buf[HEADER_LEN..])?,
-                            // msg received from other lst
-                            DESTINATION_RELAY => LSTMessage::Relay(&self.buf[HEADER_LEN..]),
-                            _ => LSTMessage::Unknown(0x00)
-                        });
+                            return Ok(match self.buf[DESTINATION_PTR] {
+                                // msg comming from this lst, not relay
+                                DESTINATION_LOCAL => Self::parse_local_msg(&self.buf[HEADER_LEN..])?,
+                                // msg received from other lst
+                                DESTINATION_RELAY => LSTMessage::Relay(&self.buf[HEADER_LEN..]),
+                                _ => LSTMessage::Unknown(0x00)
+                            });
+                        }
                     }
+                } else {
+                    break;
                 }
             }
         }
