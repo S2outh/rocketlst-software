@@ -85,8 +85,6 @@ impl<S: Read> LSTReceiver<S> {
                 if let Some(result) = self.framer.push(&self.buf, len) {
                     match result {
                         Resp::Synced(ptr) => {
-                            println!("sync");
-                            println!("{}, {}, {}", ptr, strt_pos, len);
                             if ptr != 0 {
                                 self.buf.copy_within(ptr..strt_pos+len, 0);
                                 len -= ptr - strt_pos;
@@ -94,8 +92,6 @@ impl<S: Read> LSTReceiver<S> {
                             strt_pos = self.framer.ptr;
                         }
                         Resp::Frame(ptr) => {
-                            println!("frame");
-                            println!("{}, {}, {}", ptr, strt_pos, len);
                             self.remaining_range = ptr..strt_pos+len;
 
                             return Ok(match self.buf[DESTINATION_PTR] {
