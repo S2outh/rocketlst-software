@@ -58,6 +58,21 @@ bind_interrupts!(struct Irqs {
     USART3_4_5_6_LPUART1 => usart::BufferedInterruptHandler<USART5>;
 });
 
+fn crc_ccitt(bytes: &[u8]) -> u16 {
+    let mut crc: u16 = 0xFFFF;
+    for byte in bytes {
+        crc ^= (*byte as u16) << 8;
+        for _ in 0..8 {
+            if (crc & 0x8000) != 0 {
+                crc = (crc << 1) ^ 0x1021;
+            } else {
+                crc <<= 1;
+            }
+        }
+    }
+    crc
+}
+
 /// take a beacon, add necessary headers and relay to RocketLST via uart
 #[embassy_executor::task(pool_size = 2)]
 async fn lst_sender_thread(
@@ -74,8 +89,9 @@ async fn lst_sender_thread(
             let mut crc = crc.lock().await;
             crc.reset();
             let mut crc_func = |bytes: &[u8]| crc.feed_bytes(bytes) as u16;
-            beacon.bytes(&mut crc_func)
+            beacon.bytes(&mut crc_ccitt)
         };
+        println!("{}", bytes.len());
 
         if let Err(e) = lst.lock().await.send(bytes).await {
             error!("could not send via lsp: {}", e);

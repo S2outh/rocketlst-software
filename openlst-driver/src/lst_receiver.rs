@@ -96,9 +96,9 @@ impl<S: Read> LSTReceiver<S> {
 
                             return Ok(match self.buf[DESTINATION_PTR] {
                                 // msg comming from this lst, not relay
-                                DESTINATION_LOCAL => Self::parse_local_msg(&self.buf[HEADER_LEN..])?,
+                                DESTINATION_LOCAL => Self::parse_local_msg(&self.buf[HEADER_LEN..ptr])?,
                                 // msg received from other lst
-                                DESTINATION_RELAY => LSTMessage::Relay(&self.buf[HEADER_LEN..]),
+                                DESTINATION_RELAY => LSTMessage::Relay(&self.buf[HEADER_LEN..ptr]),
                                 _ => LSTMessage::Unknown(0x00)
                             });
                         }
