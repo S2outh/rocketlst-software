@@ -16,9 +16,9 @@ use embassy_stm32::{
     usart::{self, BufferedUart, BufferedUartTx, BufferedUartRx},
     wdg::IndependentWatchdog,
 };
-use embassy_time::Timer;
+use embassy_time::{Timer, Instant};
 use south_common::{
-    DynBeacon, LowRateTelemetry, MidRateTelemetry, can_config::CanPeriphConfig, telemetry as tm,
+    DynBeacon, LowRateTelemetry, MidRateTelemetry, TMValue, can_config::CanPeriphConfig, telemetry as tm
 };
 
 use {defmt_rtt as _, panic_probe as _};
@@ -70,6 +70,7 @@ async fn lst_sender_thread(
     loop {
         info!("sending beacon");
         let mut beacon = beacon.lock().await;
+        beacon.insert_slice(&tm::Timestamp, &Instant::now().as_micros().to_bytes()).unwrap();
 
         let bytes = {
             let mut crc = crc.lock().await;
