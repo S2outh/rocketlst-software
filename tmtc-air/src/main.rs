@@ -18,7 +18,7 @@ use embassy_stm32::{
 };
 use embassy_time::{Timer, Instant};
 use south_common::{
-    DynBeacon, LowRateTelemetry, MidRateTelemetry, TMValue, can_config::CanPeriphConfig, telemetry as tm
+    Beacon, BeaconOperationError, HighRateTelemetry, LowRateTelemetry, MidRateTelemetry, TMValue, can_config::CanPeriphConfig, telemetry as tm
 };
 
 use {defmt_rtt as _, panic_probe as _};
@@ -34,6 +34,7 @@ const STARTUP_DELAY: u64 = 1000;
 // Static object allocation
 static LRB: StaticCell<Mutex<ThreadModeRawMutex, LowRateTelemetry>> = StaticCell::new();
 static MRB: StaticCell<Mutex<ThreadModeRawMutex, MidRateTelemetry>> = StaticCell::new();
+static HRB: StaticCell<Mutex<ThreadModeRawMutex, HighRateTelemetry>> = StaticCell::new();
 static LST: StaticCell<Mutex<ThreadModeRawMutex, LSTSender<BufferedUartTx<'static>>>> =
     StaticCell::new();
 static CRC: StaticCell<Mutex<ThreadModeRawMutex, Crc>> = StaticCell::new();
@@ -63,7 +64,7 @@ bind_interrupts!(struct Irqs {
 #[embassy_executor::task(pool_size = 2)]
 async fn lst_sender_thread(
     send_intervall: u64,
-    beacon: &'static Mutex<ThreadModeRawMutex, dyn DynBeacon>,
+    beacon: &'static Mutex<ThreadModeRawMutex, dyn Beacon>,
     crc: &'static Mutex<ThreadModeRawMutex, Crc<'static>>,
     lst: &'static Mutex<ThreadModeRawMutex, LSTSender<BufferedUartTx<'static>>>,
 ) {
@@ -87,10 +88,26 @@ async fn lst_sender_thread(
     }
 }
 
+macro_rules! beacon_insert {
+    ($beacon:ident, $id:ident, $envelope:ident) => {
+        if let Err(e) = $beacon
+            .lock()
+            .await
+            .insert_slice(tm::from_id($id.as_raw()).unwrap(), $envelope.frame.data()) {
+                match e {
+                    BeaconOperationError::DefNotInBeacon => (),
+                    BeaconOperationError::OutOfMemory => {
+                        error!("received incomplete value");
+                    },
+                }
+            }
+    };
+}
 // receive can messages and put them in the corresponding beacons
 #[embassy_executor::task]
 async fn can_receiver_thread(
-    mid_rate_beacon: &'static Mutex<ThreadModeRawMutex, dyn DynBeacon>,
+    mid_rate_beacon: &'static Mutex<ThreadModeRawMutex, dyn Beacon>,
+    high_rate_beacon: &'static Mutex<ThreadModeRawMutex, dyn Beacon>,
     can: BufferedFdCanReceiver,
 ) {
     loop {
@@ -98,11 +115,8 @@ async fn can_receiver_thread(
         match can.receive().await {
             Ok(envelope) => {
                 if let embedded_can::Id::Standard(id) = envelope.frame.id() {
-                    mid_rate_beacon
-                        .lock()
-                        .await
-                        .insert_slice(tm::from_id(id.as_raw()).unwrap(), envelope.frame.data())
-                        .unwrap();
+                    beacon_insert!(mid_rate_beacon, id, envelope);
+                    beacon_insert!(high_rate_beacon, id, envelope);
                 } else {
                     defmt::unreachable!()
                 };
@@ -257,16 +271,18 @@ async fn main(spawner: Spawner) {
     // -- Beacons
     let low_rate_beacon = LRB.init(Mutex::new(LowRateTelemetry::new()));
     let mid_rate_beacon = MRB.init(Mutex::new(MidRateTelemetry::new()));
+    let high_rate_beacon = HRB.init(Mutex::new(HighRateTelemetry::new()));
 
     // Startup
     spawner.must_spawn(petter(watchdog));
-    spawner.must_spawn(can_receiver_thread(mid_rate_beacon, can_instance.reader()));
+    spawner.must_spawn(can_receiver_thread(mid_rate_beacon, high_rate_beacon, can_instance.reader()));
 
     // LST sender startup
     Timer::after_millis(STARTUP_DELAY).await;
     spawner.must_spawn(telemetry_thread(low_rate_beacon, lst_tx, lst_rx));
     spawner.must_spawn(lst_sender_thread(10_000, low_rate_beacon, crc, lst_tx));
     spawner.must_spawn(lst_sender_thread(1_000, mid_rate_beacon, crc, lst_tx));
+    spawner.must_spawn(lst_sender_thread(100, high_rate_beacon, crc, lst_tx));
 
     core::future::pending::<()>().await;
 }
