@@ -61,7 +61,7 @@ bind_interrupts!(struct Irqs {
 });
 
 /// take a beacon, add necessary headers and relay to RocketLST via uart
-#[embassy_executor::task(pool_size = 2)]
+#[embassy_executor::task(pool_size = 3)]
 async fn lst_sender_thread(
     send_intervall: u64,
     beacon: &'static Mutex<ThreadModeRawMutex, dyn Beacon>,
