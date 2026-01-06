@@ -70,20 +70,21 @@ async fn lst_sender_thread(
 ) {
     loop {
         info!("sending beacon");
-        let mut beacon = beacon.lock().await;
-        beacon.insert_slice(&tm::Timestamp, &Instant::now().as_micros().to_bytes()).unwrap();
+        {
+            let mut beacon = beacon.lock().await;
+            beacon.insert_slice(&tm::Timestamp, &Instant::now().as_millis().to_bytes()).unwrap();
 
-        let bytes = {
-            let mut crc = crc.lock().await;
-            crc.reset();
-            let mut crc_func = |bytes: &[u8]| crc.feed_bytes(bytes) as u16;
-            beacon.bytes(&mut crc_func)
-        };
+            let bytes = {
+                let mut crc = crc.lock().await;
+                crc.reset();
+                let mut crc_func = |bytes: &[u8]| crc.feed_bytes(bytes) as u16;
+                beacon.bytes(&mut crc_func)
+            };
 
-        if let Err(e) = lst.lock().await.send(bytes).await {
-            error!("could not send via lsp: {}", e);
+            if let Err(e) = lst.lock().await.send(bytes).await {
+                error!("could not send via lsp: {}", e);
+            }
         }
-        drop(beacon);
         Timer::after_millis(send_intervall).await;
     }
 }
