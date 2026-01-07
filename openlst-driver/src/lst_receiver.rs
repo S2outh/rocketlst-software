@@ -47,7 +47,7 @@ impl<S: Read> LSTReceiver<S> {
     }
     fn parse_telem(msg: &[u8]) -> Result<LSTTelemetry, ReceiverError<S::Error>> {
         // 62 bytes
-        if msg.len() < 55 {
+        if msg.len() < 62 {
             Err(ReceiverError::ParseError("telem msg too short"))
         } else {
             Ok(LSTTelemetry {
