@@ -1,4 +1,5 @@
 const MAGIC: [u8; 2] = [0x22, 0x69];
+const FULL_HEADER_LEN: usize = 8;
 
 enum State {
     Sync { magic_pos: usize }, // searching for magic
@@ -34,7 +35,7 @@ impl Framer {
 
             State::Len => {
                 let len = byte as usize;
-                if len == 0 {
+                if len <= FULL_HEADER_LEN {
                     self.state = State::Sync { magic_pos: 0 };
                 }
                 else {

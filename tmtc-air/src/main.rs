@@ -30,7 +30,7 @@ use openlst_driver::lst_sender::{LSTCmd, LSTSender};
 
 // General setup stuff
 const STARTUP_DELAY: u64 = 1000;
-const OPENLST_HWID: u16 = 1;
+const OPENLST_HWID: u16 = 0x2DEC;
 
 // Static object allocation
 static LRB: StaticCell<Mutex<ThreadModeRawMutex, LowRateTelemetry>> = StaticCell::new();

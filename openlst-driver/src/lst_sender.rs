@@ -1,8 +1,8 @@
 use embedded_io_async::Write;
 use heapless::Vec;
 
-const HEADER_LEN: usize = 8;
-const CMD_LEN: usize = HEADER_LEN + 1;
+const FULL_HEADER_LEN: usize = 8;
+const CMD_LEN: usize = FULL_HEADER_LEN + 1;
 const MAX_MSG_LEN: usize = 256;
 
 const DESTINATION_RELAY: u8 = 0x11;
@@ -30,7 +30,7 @@ impl<S: Write> LSTSender<S> {
     pub fn new(uart_tx: S, hwid: u16) -> Self {
         Self { uart_tx, hwid, seq_num: 0 }
     }
-    pub fn get_header(&mut self, msg_len: u8, dest: u8) -> [u8; HEADER_LEN] {
+    pub fn get_header(&mut self, msg_len: u8, dest: u8) -> [u8; FULL_HEADER_LEN] {
         let header = [
             0x22, 0x69,                          // Uart start bytes
             msg_len + 5,                         // packet length (+5 for remaining header)
@@ -43,7 +43,7 @@ impl<S: Write> LSTSender<S> {
     }
     pub async fn send(&mut self, msg: &[u8]) -> Result<(), SenderError<S::Error>> {
 
-        if msg.len() > MAX_MSG_LEN - HEADER_LEN {
+        if msg.len() > MAX_MSG_LEN - FULL_HEADER_LEN {
             return Err(SenderError::MessageTooLongError)
         }
 
