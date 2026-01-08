@@ -24,12 +24,12 @@
           toolchain = pkgs.fenix.toolchainOf {
             channel = "nightly";
             date = "2025-12-22";
-            sha256 = "sha256-tPN58hOEtiHTamD0DNmwQHk1g1w1qx7SPr3yecbcOF8=";
+            sha256 = "sha256-bXz1imrwFz4Z5vlZV4jfRZWwsRma6Sk95IOuTMQFFVU=";
           };
           lib = pkgs.fenix.targets.thumbv6m-none-eabi.toolchainOf {
             channel = "nightly";
             date = "2025-12-22";
-            sha256 = "sha256-tPN58hOEtiHTamD0DNmwQHk1g1w1qx7SPr3yecbcOF8=";
+            sha256 = "sha256-bXz1imrwFz4Z5vlZV4jfRZWwsRma6Sk95IOuTMQFFVU=";
           };
           rust = pkgs.fenix.combine [
             toolchain.rustc

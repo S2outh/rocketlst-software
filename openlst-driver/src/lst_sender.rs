@@ -16,6 +16,7 @@ pub enum LSTCmd {
 
 pub struct LSTSender<S: Write> {
     uart_tx: S,
+    hwid: u16,
     seq_num: u16,
 }
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -26,14 +27,14 @@ pub enum SenderError<UartError> {
 }
 
 impl<S: Write> LSTSender<S> {
-    pub fn new(uart_tx: S) -> Self {
-        Self { uart_tx, seq_num: 0 }
+    pub fn new(uart_tx: S, hwid: u16) -> Self {
+        Self { uart_tx, hwid, seq_num: 0 }
     }
     pub fn get_header(&mut self, msg_len: u8, dest: u8) -> [u8; HEADER_LEN] {
         let header = [
             0x22, 0x69,                          // Uart start bytes
             msg_len + 5,                         // packet length (+5 for remaining header)
-            0x01, 0x00,                          // Hardware ID = 1 (for the lst to accept commands)
+            self.hwid as u8, (self.hwid >> 8) as u8, // Hardware ID
             self.seq_num as u8, (self.seq_num >> 8) as u8, // SeqNum
             dest,                                // Destination (0x01: LST, 0x11: Relay)
         ];

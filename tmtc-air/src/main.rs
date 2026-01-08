@@ -30,6 +30,7 @@ use openlst_driver::lst_sender::{LSTCmd, LSTSender};
 
 // General setup stuff
 const STARTUP_DELAY: u64 = 1000;
+const OPENLST_HWID: u16 = 1;
 
 // Static object allocation
 static LRB: StaticCell<Mutex<ThreadModeRawMutex, LowRateTelemetry>> = StaticCell::new();
@@ -47,7 +48,7 @@ static C_RX_BUF: StaticCell<RxFdBuf<C_RX_BUF_SIZE>> = StaticCell::new();
 static C_TX_BUF: StaticCell<TxFdBuf<C_TX_BUF_SIZE>> = StaticCell::new();
 
 // Uart static buffer
-const S_RX_BUF_SIZE: usize = 256;
+const S_RX_BUF_SIZE: usize = 1024;
 const S_TX_BUF_SIZE: usize = 256;
 
 static S_RX_BUF: StaticCell<[u8; S_RX_BUF_SIZE]> = StaticCell::new();
@@ -134,10 +135,9 @@ async fn telemetry_thread(
     lst: &'static Mutex<ThreadModeRawMutex, LSTSender<BufferedUartTx<'static>>>,
     mut lst_recv: LSTReceiver<BufferedUartRx<'static>>,
 ) {
-    const LST_TM_INTERVALL_MS: u64 = 3_000;
+    const LST_TM_INTERVALL_MS: u64 = 10_000;
     const LST_TM_TIMEOUT_MS: u64 = 3_000;
     loop {
-        println!("test");
         lst.lock()
             .await
             .send_cmd(LSTCmd::GetTelem)
@@ -263,7 +263,7 @@ async fn main(spawner: Spawner) {
     .unwrap()
     .split();
 
-    let lst_tx = LST.init(Mutex::new(LSTSender::new(uart_tx)));
+    let lst_tx = LST.init(Mutex::new(LSTSender::new(uart_tx, OPENLST_HWID)));
     let lst_rx = LSTReceiver::new(uart_rx);
 
     // -- CRC setup

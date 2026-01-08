@@ -2,31 +2,44 @@
   description = "Nixos config flake";
 
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    nixpkgs-python.url = "github:cachix/nixpkgs-python";
+    flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs =
-    { self
-    , nixpkgs
-    }
-      @inputs:
+  outputs = {
+		nixpkgs,
+		nixpkgs-python,
+		flake-utils,
+		...
+	}: 
+	flake-utils.lib.eachDefaultSystem (
+    system:
     let
-      pkgs = nixpkgs.legacyPackages.x86_64-linux;
+      pythonVersion = "3.7.0";
+      pkgs = import nixpkgs { inherit system; };
+      buildPython = nixpkgs-python.packages.${system}.${pythonVersion};
     in
     {
-      devShells.x86_64-linux.default =
-        pkgs.mkShell {
-            LD_LIBRARY_PATH = "${pkgs.stdenv.cc.cc.lib}/lib";
-	    buildInputs = [
-            pkgs.sdcc
-            pkgs.cc-tool
-            #pkgs.stdenv.cc.cc.lib
-            pkgs.picocom
-            pkgs.python3
-          ];
-          shellHook = ''
+      devShells.default = pkgs.mkShell {
+        buildInputs = [
+          buildPython
+					pkgs.gcc
+					pkgs.libgcc
+
+          pkgs.sdcc
+          pkgs.cc-tool
+          pkgs.picocom
+        ];
+				LD_LIBRARY_PATH = "${pkgs.stdenv.cc.cc.lib}/lib";
+        shellHook = ''
+				  python -m venv .venv
+				  source .venv/bin/activate
+          python -m pip install -e open-lst/tools
+
 	        echo "Welcome in the OpenLST Shell!"
-          '';
-        };
-    };
+        '';
+      };
+    }
+  );
 }
