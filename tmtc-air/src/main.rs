@@ -85,6 +85,7 @@ async fn lst_sender_thread(
             if let Err(e) = lst.lock().await.send(bytes).await {
                 error!("could not send via lsp: {}", e);
             }
+            beacon.flush();
         }
         Timer::after_millis(send_intervall).await;
     }
