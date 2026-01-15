@@ -18,7 +18,7 @@ use embassy_stm32::{
 };
 use embassy_time::{Timer, Instant};
 use south_common::{
-    Beacon, BeaconOperationError, HighRateTelemetry, LowRateTelemetry, MidRateTelemetry, TMValue, can_config::CanPeriphConfig, telemetry as tm
+    Beacon, BeaconOperationError, LSTBeacon, EPSBeacon, SensorboardBeacon, can_config::CanPeriphConfig, telemetry as tm
 };
 
 use {defmt_rtt as _, panic_probe as _};
@@ -33,9 +33,9 @@ const STARTUP_DELAY: u64 = 1000;
 const OPENLST_HWID: u16 = 0x2DEC;
 
 // Static object allocation
-static LRB: StaticCell<Mutex<ThreadModeRawMutex, LowRateTelemetry>> = StaticCell::new();
-static MRB: StaticCell<Mutex<ThreadModeRawMutex, MidRateTelemetry>> = StaticCell::new();
-static HRB: StaticCell<Mutex<ThreadModeRawMutex, HighRateTelemetry>> = StaticCell::new();
+static LRB: StaticCell<Mutex<ThreadModeRawMutex, LSTBeacon>> = StaticCell::new();
+static MRB: StaticCell<Mutex<ThreadModeRawMutex, EPSBeacon>> = StaticCell::new();
+static HRB: StaticCell<Mutex<ThreadModeRawMutex, SensorboardBeacon>> = StaticCell::new();
 static LST: StaticCell<Mutex<ThreadModeRawMutex, LSTSender<BufferedUartTx<'static>>>> =
     StaticCell::new();
 static CRC: StaticCell<Mutex<ThreadModeRawMutex, Crc>> = StaticCell::new();
@@ -73,13 +73,13 @@ async fn lst_sender_thread(
         info!("sending beacon");
         {
             let mut beacon = beacon.lock().await;
-            beacon.insert_slice(&tm::Timestamp, &Instant::now().as_millis().to_bytes()).unwrap();
+            beacon.insert_slice(&tm::Timestamp, &(Instant::now().as_millis() as i64).to_le_bytes()).unwrap();
 
             let bytes = {
                 let mut crc = crc.lock().await;
                 crc.reset();
                 let mut crc_func = |bytes: &[u8]| crc.feed_bytes(bytes) as u16;
-                beacon.bytes(&mut crc_func)
+                beacon.to_bytes(&mut crc_func)
             };
 
             if let Err(e) = lst.lock().await.send(bytes).await {
@@ -109,8 +109,8 @@ macro_rules! beacon_insert {
 // receive can messages and put them in the corresponding beacons
 #[embassy_executor::task]
 async fn can_receiver_thread(
-    mid_rate_beacon: &'static Mutex<ThreadModeRawMutex, dyn Beacon>,
-    high_rate_beacon: &'static Mutex<ThreadModeRawMutex, dyn Beacon>,
+    eps_beacon: &'static Mutex<ThreadModeRawMutex, EPSBeacon>,
+    sensorboard_beacon: &'static Mutex<ThreadModeRawMutex, SensorboardBeacon>,
     can: BufferedFdCanReceiver,
 ) {
     loop {
@@ -118,8 +118,8 @@ async fn can_receiver_thread(
         match can.receive().await {
             Ok(envelope) => {
                 if let embedded_can::Id::Standard(id) = envelope.frame.id() {
-                    beacon_insert!(mid_rate_beacon, id, envelope);
-                    beacon_insert!(high_rate_beacon, id, envelope);
+                    beacon_insert!(eps_beacon, id, envelope);
+                    beacon_insert!(sensorboard_beacon, id, envelope);
                 } else {
                     defmt::unreachable!()
                 };
@@ -132,7 +132,7 @@ async fn can_receiver_thread(
 // access lst telemetry
 #[embassy_executor::task]
 async fn telemetry_thread(
-    lst_beacon: &'static Mutex<ThreadModeRawMutex, LowRateTelemetry>,
+    lst_beacon: &'static Mutex<ThreadModeRawMutex, LSTBeacon>,
     lst: &'static Mutex<ThreadModeRawMutex, LSTSender<BufferedUartTx<'static>>>,
     mut lst_recv: LSTReceiver<BufferedUartRx<'static>>,
 ) {
@@ -154,13 +154,13 @@ async fn telemetry_thread(
                     LSTMessage::Telem(tm) => {
                         info!("received lst telem msg: {}", tm);
                         let mut lst_beacon = lst_beacon.lock().await;
-                        lst_beacon.uptime = tm.uptime;
-                        lst_beacon.rssi = tm.rssi;
-                        lst_beacon.lqi = tm.lqi;
-                        lst_beacon.packets_send = tm.packets_sent;
-                        lst_beacon.packets_good = tm.packets_good;
-                        lst_beacon.packets_bad_checksum = tm.packets_rejected_checksum;
-                        lst_beacon.packets_bad_other = tm.packets_rejected_other;
+                        lst_beacon.uptime = Some(tm.uptime);
+                        lst_beacon.rssi = Some(tm.rssi);
+                        lst_beacon.lqi = Some(tm.lqi);
+                        lst_beacon.packets_send = Some(tm.packets_sent);
+                        lst_beacon.packets_good = Some(tm.packets_good);
+                        lst_beacon.packets_bad_checksum = Some(tm.packets_rejected_checksum);
+                        lst_beacon.packets_bad_other = Some(tm.packets_rejected_other);
                     }
                     LSTMessage::Ack => info!("ack"),
                     LSTMessage::Nack => info!("nack"),
@@ -271,20 +271,20 @@ async fn main(spawner: Spawner) {
     let crc = CRC.init(Mutex::new(Crc::new(p.CRC, get_crc_config())));
 
     // -- Beacons
-    let low_rate_beacon = LRB.init(Mutex::new(LowRateTelemetry::new()));
-    let mid_rate_beacon = MRB.init(Mutex::new(MidRateTelemetry::new()));
-    let high_rate_beacon = HRB.init(Mutex::new(HighRateTelemetry::new()));
+    let lst_beacon = LRB.init(Mutex::new(LSTBeacon::new()));
+    let eps_beacon = MRB.init(Mutex::new(EPSBeacon::new()));
+    let sensorboard_beacon = HRB.init(Mutex::new(SensorboardBeacon::new()));
 
     // Startup
     spawner.must_spawn(petter(watchdog));
-    spawner.must_spawn(can_receiver_thread(mid_rate_beacon, high_rate_beacon, can_instance.reader()));
+    spawner.must_spawn(can_receiver_thread(eps_beacon, sensorboard_beacon, can_instance.reader()));
 
     // LST sender startup
     Timer::after_millis(STARTUP_DELAY).await;
-    spawner.must_spawn(telemetry_thread(low_rate_beacon, lst_tx, lst_rx));
-    spawner.must_spawn(lst_sender_thread(10_000, low_rate_beacon, crc, lst_tx));
-    spawner.must_spawn(lst_sender_thread(1_000, mid_rate_beacon, crc, lst_tx));
-    spawner.must_spawn(lst_sender_thread(100, high_rate_beacon, crc, lst_tx));
+    spawner.must_spawn(telemetry_thread(lst_beacon, lst_tx, lst_rx));
+    spawner.must_spawn(lst_sender_thread(10_000, lst_beacon, crc, lst_tx));
+    spawner.must_spawn(lst_sender_thread(1_000, eps_beacon, crc, lst_tx));
+    spawner.must_spawn(lst_sender_thread(100, sensorboard_beacon, crc, lst_tx));
 
     core::future::pending::<()>().await;
 }

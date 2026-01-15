@@ -24,8 +24,8 @@ embedded-io-async = { version = "0.7.0" }
 embedded-can = "0.4.1"
 static_cell = "2.1.1"
 
-south-common = { version = "0.2.0", features = ["g0"], git = "ssh://git@github.com/S2outh/south-common.git" }
-#south-common = { version = "0.2.0", path = "/home/eliseoc/WueSpace/South/south-common" }
+south-common = { version = "1.0.0", features = ["g0"], git = "ssh://git@github.com/S2outh/south-common.git" }
+#south-common = { version = "1.0.0", path = "/home/eliseoc/WueSpace/South/south-common" }
 openlst-driver = { path = "../openlst-driver/", features = ["defmt"] }
 
 [profile.release]

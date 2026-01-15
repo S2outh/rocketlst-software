@@ -746,8 +746,8 @@ checksum = "388a1df253eca08550bef6c72392cfe7c30914bf41df5269b68cbd6ff8f570a3"
 
 [[package]]
 name = "south-common"
-version = "0.2.0"
-source = "git+ssh://git@github.com/S2outh/south-common.git#d62a5eaa17a39ef2d249e690813e73dc8b824817"
+version = "1.0.0"
+source = "git+ssh://git@github.com/S2outh/south-common.git#e9a2576be38ad8e9b070a10ba5b8586f2a9b9d04"
 dependencies = [
  "defmt 1.0.1",
  "embassy-stm32",
@@ -847,7 +847,7 @@ dependencies = [
 
 [[package]]
 name = "tmtc-lst-air"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "cortex-m",
  "cortex-m-rt",
@@ -871,17 +871,16 @@ dependencies = [
 
 [[package]]
 name = "tmtc-system"
-version = "0.1.0"
-source = "git+ssh://git@github.com/S2outh/telemetry-system.git#77b80776363c379373fe7c0c1ecbc0f72e4382fb"
+version = "1.2.0"
+source = "git+ssh://git@github.com/S2outh/telemetry-system.git#06cf781d41b2602b692b1aba3360fd134e2edbd3"
 dependencies = [
- "heapless 0.9.2",
  "tmtc-system-macros",
 ]
 
 [[package]]
 name = "tmtc-system-macros"
 version = "0.1.0"
-source = "git+ssh://git@github.com/S2outh/telemetry-system.git#77b80776363c379373fe7c0c1ecbc0f72e4382fb"
+source = "git+ssh://git@github.com/S2outh/telemetry-system.git#06cf781d41b2602b692b1aba3360fd134e2edbd3"
 dependencies = [
  "heck",
  "proc-macro2",
