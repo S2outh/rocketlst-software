@@ -1,53 +1,66 @@
 #![no_std]
 #![no_main]
 
-use embassy_futures::select::{Either, select};
+mod io_threads;
+
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, mutex::Mutex};
 
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::{
     Config, bind_interrupts,
-    can::{self, BufferedFdCanReceiver, CanConfigurator, RxFdBuf, TxFdBuf},
+    can::{self, CanConfigurator, RxFdBuf, TxFdBuf},
     crc::{self, Crc},
     gpio::{Level, Output, Speed},
     peripherals::*,
     rcc::{self, mux::Fdcansel},
-    usart::{self, BufferedUart, BufferedUartTx, BufferedUartRx},
+    usart::{self, BufferedUart, BufferedUartTx},
     wdg::IndependentWatchdog,
 };
-use embassy_time::{Timer, Instant};
+use embassy_time::Timer;
 use south_common::{
-    Beacon, BeaconOperationError, LSTBeacon, EPSBeacon, SensorboardBeacon, can_config::CanPeriphConfig, telemetry as tm
+    Beacon, LSTBeacon, EPSBeacon, SensorboardBeacon, can_config::CanPeriphConfig, telemetry as tm
 };
 
 use {defmt_rtt as _, panic_probe as _};
 
 use static_cell::StaticCell;
 
-use openlst_driver::lst_receiver::{LSTMessage, LSTReceiver};
-use openlst_driver::lst_sender::{LSTCmd, LSTSender};
+use openlst_driver::lst_receiver::LSTReceiver;
+use openlst_driver::lst_sender::LSTSender;
 
 // General setup stuff
 const STARTUP_DELAY: u64 = 1000;
 const OPENLST_HWID: u16 = 0x2DEC;
+const NUM_RECV_BEC: usize = 2;
 
-// Static object allocation
+const LST_BEACON_INTERVAL_MS: u64 = 10_000;
+const EPS_BEACON_INTERVAL_MS: u64 = 1_000;
+const SENSORBOARD_BEACON_INTERVAL_MS: u64 = 100;
+
+const WATCHDOG_TIMEOUT_US: u32 = 300_000;
+const WATCHDOG_PETTING_INTERVAL_US: u32 = WATCHDOG_TIMEOUT_US / 2;
+
+// Static beacon allocation
 static LRB: StaticCell<Mutex<ThreadModeRawMutex, LSTBeacon>> = StaticCell::new();
 static MRB: StaticCell<Mutex<ThreadModeRawMutex, EPSBeacon>> = StaticCell::new();
 static HRB: StaticCell<Mutex<ThreadModeRawMutex, SensorboardBeacon>> = StaticCell::new();
+
+static BL: StaticCell<[&'static Mutex<ThreadModeRawMutex, dyn Beacon>; NUM_RECV_BEC]> = StaticCell::new();
+
+// Static peripheral allocation
 static LST: StaticCell<Mutex<ThreadModeRawMutex, LSTSender<BufferedUartTx<'static>>>> =
     StaticCell::new();
 static CRC: StaticCell<Mutex<ThreadModeRawMutex, Crc>> = StaticCell::new();
 
-// Can static buffer
+// Static can buffer
 const C_RX_BUF_SIZE: usize = 500;
 const C_TX_BUF_SIZE: usize = 30;
 
 static C_RX_BUF: StaticCell<RxFdBuf<C_RX_BUF_SIZE>> = StaticCell::new();
 static C_TX_BUF: StaticCell<TxFdBuf<C_TX_BUF_SIZE>> = StaticCell::new();
 
-// Uart static buffer
+// Static uart buffer
 const S_RX_BUF_SIZE: usize = 1024;
 const S_TX_BUF_SIZE: usize = 256;
 
@@ -61,130 +74,12 @@ bind_interrupts!(struct Irqs {
     USART3_4_5_6_LPUART1 => usart::BufferedInterruptHandler<USART5>;
 });
 
-/// take a beacon, add necessary headers and relay to RocketLST via uart
-#[embassy_executor::task(pool_size = 3)]
-async fn lst_sender_thread(
-    send_intervall: u64,
-    beacon: &'static Mutex<ThreadModeRawMutex, dyn Beacon>,
-    crc: &'static Mutex<ThreadModeRawMutex, Crc<'static>>,
-    lst: &'static Mutex<ThreadModeRawMutex, LSTSender<BufferedUartTx<'static>>>,
-) {
-    loop {
-        info!("sending beacon");
-        {
-            let mut beacon = beacon.lock().await;
-            beacon.insert_slice(&tm::Timestamp, &(Instant::now().as_millis() as i64).to_le_bytes()).unwrap();
-
-            let bytes = {
-                let mut crc = crc.lock().await;
-                crc.reset();
-                let mut crc_func = |bytes: &[u8]| crc.feed_bytes(bytes) as u16;
-                beacon.to_bytes(&mut crc_func)
-            };
-
-            if let Err(e) = lst.lock().await.send(bytes).await {
-                error!("could not send via lsp: {}", e);
-            }
-            beacon.flush();
-        }
-        Timer::after_millis(send_intervall).await;
-    }
-}
-
-macro_rules! beacon_insert {
-    ($beacon:ident, $id:ident, $envelope:ident) => {
-        if let Err(e) = $beacon
-            .lock()
-            .await
-            .insert_slice(tm::from_id($id.as_raw()).unwrap(), $envelope.frame.data()) {
-                match e {
-                    BeaconOperationError::DefNotInBeacon => (),
-                    BeaconOperationError::OutOfMemory => {
-                        error!("received incomplete value");
-                    },
-                }
-            }
-    };
-}
-// receive can messages and put them in the corresponding beacons
-#[embassy_executor::task]
-async fn can_receiver_thread(
-    eps_beacon: &'static Mutex<ThreadModeRawMutex, EPSBeacon>,
-    sensorboard_beacon: &'static Mutex<ThreadModeRawMutex, SensorboardBeacon>,
-    can: BufferedFdCanReceiver,
-) {
-    loop {
-        // receive from can
-        match can.receive().await {
-            Ok(envelope) => {
-                if let embedded_can::Id::Standard(id) = envelope.frame.id() {
-                    beacon_insert!(eps_beacon, id, envelope);
-                    beacon_insert!(sensorboard_beacon, id, envelope);
-                } else {
-                    defmt::unreachable!()
-                };
-            }
-            Err(e) => error!("error in can frame! {}", e),
-        };
-    }
-}
-
-// access lst telemetry
-#[embassy_executor::task]
-async fn telemetry_thread(
-    lst_beacon: &'static Mutex<ThreadModeRawMutex, LSTBeacon>,
-    lst: &'static Mutex<ThreadModeRawMutex, LSTSender<BufferedUartTx<'static>>>,
-    mut lst_recv: LSTReceiver<BufferedUartRx<'static>>,
-) {
-    const LST_TM_INTERVALL_MS: u64 = 10_000;
-    const LST_TM_TIMEOUT_MS: u64 = 3_000;
-    loop {
-        lst.lock()
-            .await
-            .send_cmd(LSTCmd::GetTelem)
-            .await
-            .unwrap_or_else(|e| error!("could not send cmd to lst: {}", e));
-        let answer = select(
-            lst_recv.receive(),
-            Timer::after_millis(LST_TM_TIMEOUT_MS)
-        ).await;
-        if let Either::First(lst_answer) = answer {
-            match lst_answer {
-                Ok(msg) => match msg {
-                    LSTMessage::Telem(tm) => {
-                        info!("received lst telem msg: {}", tm);
-                        let mut lst_beacon = lst_beacon.lock().await;
-                        lst_beacon.uptime = Some(tm.uptime);
-                        lst_beacon.rssi = Some(tm.rssi);
-                        lst_beacon.lqi = Some(tm.lqi);
-                        lst_beacon.packets_send = Some(tm.packets_sent);
-                        lst_beacon.packets_good = Some(tm.packets_good);
-                        lst_beacon.packets_bad_checksum = Some(tm.packets_rejected_checksum);
-                        lst_beacon.packets_bad_other = Some(tm.packets_rejected_other);
-                    }
-                    LSTMessage::Ack => info!("ack"),
-                    LSTMessage::Nack => info!("nack"),
-                    LSTMessage::Unknown(a) => info!("unknown: {}", a),
-                    LSTMessage::Relay(_) => info!("relay"),
-                },
-                Err(e) => {
-                    error!("could not receive from lst: {}", e);
-                }
-            }
-        } else {
-            lst_recv.reset();
-        }
-        
-        Timer::after_millis(LST_TM_INTERVALL_MS).await;
-    }
-}
-
 /// Watchdog petting task
 #[embassy_executor::task]
 async fn petter(mut watchdog: IndependentWatchdog<'static, IWDG>) {
     loop {
         watchdog.pet();
-        Timer::after_millis(200).await;
+        Timer::after_micros(WATCHDOG_PETTING_INTERVAL_US.into()).await;
     }
 }
 
@@ -228,11 +123,11 @@ async fn main(spawner: Spawner) {
     let p = embassy_stm32::init(config);
     info!("Launching");
 
-    // independent watchdog with timeout 300 MS
-    let mut watchdog = IndependentWatchdog::new(p.IWDG, 300_000);
+    // unleash independent watchdog
+    let mut watchdog = IndependentWatchdog::new(p.IWDG, WATCHDOG_TIMEOUT_US);
     watchdog.unleash();
 
-    // -- CAN configuration
+    // can configuration
     let mut can_configurator =
         CanPeriphConfig::new(CanConfigurator::new(p.FDCAN1, p.PA11, p.PA12, Irqs));
 
@@ -275,16 +170,18 @@ async fn main(spawner: Spawner) {
     let eps_beacon = MRB.init(Mutex::new(EPSBeacon::new()));
     let sensorboard_beacon = HRB.init(Mutex::new(SensorboardBeacon::new()));
 
+    let receivable_beacons = BL.init([eps_beacon, sensorboard_beacon]);
+
     // Startup
     spawner.must_spawn(petter(watchdog));
-    spawner.must_spawn(can_receiver_thread(eps_beacon, sensorboard_beacon, can_instance.reader()));
+    spawner.must_spawn(io_threads::can_receiver_thread(receivable_beacons, can_instance.reader()));
 
     // LST sender startup
     Timer::after_millis(STARTUP_DELAY).await;
-    spawner.must_spawn(telemetry_thread(lst_beacon, lst_tx, lst_rx));
-    spawner.must_spawn(lst_sender_thread(10_000, lst_beacon, crc, lst_tx));
-    spawner.must_spawn(lst_sender_thread(1_000, eps_beacon, crc, lst_tx));
-    spawner.must_spawn(lst_sender_thread(100, sensorboard_beacon, crc, lst_tx));
+    spawner.must_spawn(io_threads::telemetry_thread(lst_beacon, lst_tx, lst_rx));
+    spawner.must_spawn(io_threads::lst_sender_thread(LST_BEACON_INTERVAL_MS, lst_beacon, crc, lst_tx));
+    spawner.must_spawn(io_threads::lst_sender_thread(EPS_BEACON_INTERVAL_MS, eps_beacon, crc, lst_tx));
+    spawner.must_spawn(io_threads::lst_sender_thread(SENSORBOARD_BEACON_INTERVAL_MS, sensorboard_beacon, crc, lst_tx));
 
     core::future::pending::<()>().await;
 }
