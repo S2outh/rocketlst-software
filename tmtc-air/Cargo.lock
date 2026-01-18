@@ -746,8 +746,8 @@ checksum = "388a1df253eca08550bef6c72392cfe7c30914bf41df5269b68cbd6ff8f570a3"
 
 [[package]]
 name = "south-common"
-version = "1.3.1"
-source = "git+ssh://git@github.com/S2outh/south-common.git#ecbbf3e9f3f2fbba82a73c9c0bfb3fda109ab359"
+version = "2.0.0"
+source = "git+ssh://git@github.com/S2outh/south-common.git#cb654eff488586a14e9a5a61d017f3d84a2d6fad"
 dependencies = [
  "defmt 1.0.1",
  "embassy-stm32",
@@ -827,18 +827,18 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "2.0.17"
+version = "2.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f63587ca0f12b72a0600bcba1d40081f830876000bb46dd2337a3051618f4fc8"
+checksum = "4288b5bcbc7920c07a1149a35cf9590a2aa808e0bc1eafaade0b80947865fbc4"
 dependencies = [
  "thiserror-impl",
 ]
 
 [[package]]
 name = "thiserror-impl"
-version = "2.0.17"
+version = "2.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3ff15c8ecd7de3849db632e14d18d2571fa09dfc5ed93479bc4485c7a517c913"
+checksum = "ebc4ee7f67670e9b64d05fa4253e753e016c6c95ff35b89b7941d6b856dec1d5"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -871,8 +871,8 @@ dependencies = [
 
 [[package]]
 name = "tmtc-system"
-version = "1.3.2"
-source = "git+ssh://git@github.com/S2outh/telemetry-system.git#668096e6976550fb8dd405a55bfca32c10ec20a7"
+version = "3.0.2"
+source = "git+ssh://git@github.com/S2outh/telemetry-system.git#972344f982126b68ae02d67ec103af2c7228bee7"
 dependencies = [
  "tmtc-system-macros",
 ]
@@ -880,7 +880,7 @@ dependencies = [
 [[package]]
 name = "tmtc-system-macros"
 version = "0.1.0"
-source = "git+ssh://git@github.com/S2outh/telemetry-system.git#668096e6976550fb8dd405a55bfca32c10ec20a7"
+source = "git+ssh://git@github.com/S2outh/telemetry-system.git#972344f982126b68ae02d67ec103af2c7228bee7"
 dependencies = [
  "heck",
  "proc-macro2",

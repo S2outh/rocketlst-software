@@ -16,7 +16,7 @@ use south_common::{
 #[embassy_executor::task(pool_size = 3)]
 pub async fn lst_sender_thread(
     send_intervall: u64,
-    beacon: &'static Mutex<ThreadModeRawMutex, dyn Beacon>,
+    beacon: &'static Mutex<ThreadModeRawMutex, dyn Beacon<Timestamp = i64>>,
     crc: &'static Mutex<ThreadModeRawMutex, Crc<'static>>,
     lst: &'static Mutex<ThreadModeRawMutex, LSTSender<BufferedUartTx<'static>>>,
 ) {
@@ -45,7 +45,7 @@ pub async fn lst_sender_thread(
 /// receive can messages and put them in the corresponding beacons
 #[embassy_executor::task]
 pub async fn can_receiver_thread(
-    beacons: &'static [&'static Mutex<ThreadModeRawMutex, dyn Beacon>],
+    beacons: &'static [&'static Mutex<ThreadModeRawMutex, dyn Beacon<Timestamp = i64>>],
     can: BufferedFdCanReceiver,
 ) {
     loop {
