@@ -24,7 +24,7 @@ pub async fn lst_sender_thread(
         info!("sending beacon");
         {
             let mut beacon = beacon.lock().await;
-            beacon.insert_slice(&tm::Timestamp, &(Instant::now().as_millis() as i64).to_le_bytes()).unwrap();
+            beacon.set_timestamp(Instant::now().as_millis() as i64);
 
             let bytes = {
                 let mut crc = crc.lock().await;
