@@ -117,10 +117,7 @@ pub async fn telemetry_thread(
                     error!("could not receive from lst: {}", e);
                 }
             }
-        } else {
-            lst_recv.reset();
-        }
-        
+        }        
         Timer::after_millis(LST_TM_INTERVAL_MS).await;
     }
 }
