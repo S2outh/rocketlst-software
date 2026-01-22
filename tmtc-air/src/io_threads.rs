@@ -1,12 +1,10 @@
-use embassy_futures::select::{Either, select};
-
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, mutex::Mutex};
 
 use defmt::*;
 use embassy_stm32::{
-    can::BufferedFdCanReceiver, crc::Crc, usart::{BufferedUartRx, BufferedUartTx}
+    can::BufferedFdCanReceiver, crc::Crc, mode::Async, usart::{RingBufferedUartRx, UartTx}
 };
-use embassy_time::{Instant, Timer};
+use embassy_time::{Duration, Instant, Timer, with_timeout};
 use openlst_driver::{lst_receiver::{LSTMessage, LSTReceiver}, lst_sender::{LSTCmd, LSTSender}};
 use south_common::{
     Beacon, BeaconOperationError, LSTBeacon, telemetry as tm
@@ -18,9 +16,11 @@ pub async fn lst_sender_thread(
     send_intervall: u64,
     beacon: &'static Mutex<ThreadModeRawMutex, dyn Beacon<Timestamp = i64>>,
     crc: &'static Mutex<ThreadModeRawMutex, Crc<'static>>,
-    lst: &'static Mutex<ThreadModeRawMutex, LSTSender<BufferedUartTx<'static>>>,
+    lst: &'static Mutex<ThreadModeRawMutex, LSTSender<UartTx<'static, Async>>>,
 ) {
     loop {
+        let loop_len: Duration = Duration::from_millis(send_intervall);
+        let mut loop_time = Instant::now();
         info!("sending beacon");
         {
             let mut beacon = beacon.lock().await;
@@ -38,7 +38,8 @@ pub async fn lst_sender_thread(
             }
             beacon.flush();
         }
-        Timer::after_millis(send_intervall).await;
+        loop_time += loop_len;
+        Timer::at(loop_time).await;
     }
 }
 
@@ -79,22 +80,20 @@ pub async fn can_receiver_thread(
 #[embassy_executor::task]
 pub async fn telemetry_thread(
     lst_beacon: &'static Mutex<ThreadModeRawMutex, LSTBeacon>,
-    lst: &'static Mutex<ThreadModeRawMutex, LSTSender<BufferedUartTx<'static>>>,
-    mut lst_recv: LSTReceiver<BufferedUartRx<'static>>,
+    lst: &'static Mutex<ThreadModeRawMutex, LSTSender<UartTx<'static, Async>>>,
+    mut lst_recv: LSTReceiver<RingBufferedUartRx<'static>>,
 ) {
-    const LST_TM_INTERVAL_MS: u64 = 10_000;
-    const LST_TM_TIMEOUT_MS: u64 = 3_000;
+
+    const LST_TM_INTERVAL: Duration = Duration::from_secs(10);
+    const LST_TM_TIMEOUT: Duration = Duration::from_millis(200);
+    let mut loop_time = Instant::now();
     loop {
         lst.lock()
             .await
             .send_cmd(LSTCmd::GetTelem)
             .await
             .unwrap_or_else(|e| error!("could not send cmd to lst: {}", e));
-        let answer = select(
-            lst_recv.receive(),
-            Timer::after_millis(LST_TM_TIMEOUT_MS)
-        ).await;
-        if let Either::First(lst_answer) = answer {
+        if let Ok(lst_answer) = with_timeout(LST_TM_TIMEOUT, lst_recv.receive()).await {
             match lst_answer {
                 Ok(msg) => match msg {
                     LSTMessage::Telem(tm) => {
@@ -115,9 +114,14 @@ pub async fn telemetry_thread(
                 },
                 Err(e) => {
                     error!("could not receive from lst: {}", e);
+                    lst_recv.reset();
                 }
             }
-        }        
-        Timer::after_millis(LST_TM_INTERVAL_MS).await;
+        } else {
+            error!("lst did not answer");
+            lst_recv.reset();
+        }
+        loop_time += LST_TM_INTERVAL;
+        Timer::at(loop_time).await;
     }
 }

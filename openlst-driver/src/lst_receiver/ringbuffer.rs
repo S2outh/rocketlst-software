@@ -52,4 +52,9 @@ impl<T: Copy + core::fmt::Debug, const N: usize, const SN: usize> SerialRingbuff
         }
         Ok(())
     }
+    pub fn clear(&mut self) {
+        self.head = 0;
+        self.tail = 0;
+        self.len = 0;
+    }
 }

@@ -100,4 +100,7 @@ impl<S: Read> LSTReceiver<S> {
             _ => LSTMessage::Unknown(0x00)
         });
     }
+    pub fn reset(&mut self) {
+        self.buffer.clear();
+    }
 }

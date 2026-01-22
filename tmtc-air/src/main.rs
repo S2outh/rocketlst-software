@@ -8,14 +8,7 @@ use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, mutex::Mutex};
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::{
-    Config, bind_interrupts,
-    can::{self, CanConfigurator, RxFdBuf, TxFdBuf},
-    crc::{self, Crc},
-    gpio::{Level, Output, Speed},
-    peripherals::*,
-    rcc::{self, mux::Fdcansel},
-    usart::{self, BufferedUart, BufferedUartTx},
-    wdg::IndependentWatchdog,
+    Config, bind_interrupts, can::{self, CanConfigurator, RxFdBuf, TxFdBuf}, crc::{self, Crc}, gpio::{Level, Output, Speed}, mode::Async, peripherals::*, rcc::{self, mux::Fdcansel}, usart::{self, Uart, UartTx}, wdg::IndependentWatchdog
 };
 use embassy_time::Timer;
 use south_common::{
@@ -49,29 +42,26 @@ static HRB: StaticCell<Mutex<ThreadModeRawMutex, SensorboardBeacon>> = StaticCel
 static BL: StaticCell<[&'static Mutex<ThreadModeRawMutex, dyn Beacon<Timestamp = i64>>; NUM_RECV_BEC]> = StaticCell::new();
 
 // Static peripheral allocation
-static LST: StaticCell<Mutex<ThreadModeRawMutex, LSTSender<BufferedUartTx<'static>>>> =
+static LST: StaticCell<Mutex<ThreadModeRawMutex, LSTSender<UartTx<'static, Async>>>> =
     StaticCell::new();
 static CRC: StaticCell<Mutex<ThreadModeRawMutex, Crc>> = StaticCell::new();
 
 // Static can buffer
-const C_RX_BUF_SIZE: usize = 500;
-const C_TX_BUF_SIZE: usize = 30;
+const C_RX_BUF_SIZE: usize = 512;
+const C_TX_BUF_SIZE: usize = 32;
 
 static C_RX_BUF: StaticCell<RxFdBuf<C_RX_BUF_SIZE>> = StaticCell::new();
 static C_TX_BUF: StaticCell<TxFdBuf<C_TX_BUF_SIZE>> = StaticCell::new();
 
 // Static uart buffer
-const S_RX_BUF_SIZE: usize = 1024;
-const S_TX_BUF_SIZE: usize = 256;
-
+const S_RX_BUF_SIZE: usize = 256;
 static S_RX_BUF: StaticCell<[u8; S_RX_BUF_SIZE]> = StaticCell::new();
-static S_TX_BUF: StaticCell<[u8; S_TX_BUF_SIZE]> = StaticCell::new();
 
 // bin can interrupts
 bind_interrupts!(struct Irqs {
     TIM16_FDCAN_IT0 => can::IT0InterruptHandler<FDCAN1>;
     TIM17_FDCAN_IT1 => can::IT1InterruptHandler<FDCAN1>;
-    USART3_4_5_6_LPUART1 => usart::BufferedInterruptHandler<USART5>;
+    USART3_4_5_6_LPUART1 => usart::InterruptHandler<USART5>;
 });
 
 /// Watchdog petting task
@@ -147,20 +137,20 @@ async fn main(spawner: Spawner) {
     let mut uart_config = usart::Config::default();
     uart_config.baudrate = 115200;
 
-    let (uart_tx, uart_rx) = BufferedUart::new(
+    let (uart_tx, uart_rx) = Uart::new(
         p.USART5,
         p.PB4,
         p.PB3,
-        S_TX_BUF.init([0u8; S_TX_BUF_SIZE]),
-        S_RX_BUF.init([0u8; S_RX_BUF_SIZE]),
         Irqs,
+        p.DMA1_CH1,
+        p.DMA1_CH2,
         uart_config,
     )
     .unwrap()
     .split();
 
     let lst_tx = LST.init(Mutex::new(LSTSender::new(uart_tx, OPENLST_HWID)));
-    let lst_rx = LSTReceiver::new(uart_rx);
+    let lst_rx = LSTReceiver::new(uart_rx.into_ring_buffered(S_RX_BUF.init([0; _])));
 
     // -- CRC setup
     let crc = CRC.init(Mutex::new(Crc::new(p.CRC, get_crc_config())));
