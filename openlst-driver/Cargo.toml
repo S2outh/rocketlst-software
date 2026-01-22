@@ -1,11 +1,10 @@
 [package]
 name = "openlst-driver"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
 
 [features]
 defmt = [ "dep:defmt" ]
-std = []
 
 [dependencies]
 heapless = { version = "0.9", default-features = false }

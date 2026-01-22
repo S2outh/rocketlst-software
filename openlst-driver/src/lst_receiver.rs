@@ -1,7 +1,13 @@
-use embedded_io_async::Read;
 
 mod framer;
 use framer::Framer;
+
+mod ringbuffer;
+use ringbuffer::SerialRingbuffer;
+
+use embedded_io_async::Read;
+
+use crate::lst_receiver::ringbuffer::PushErr;
 
 const HEADER_LEN: usize = 5;
 
@@ -10,20 +16,21 @@ const DESTINATION_RELAY: u8 = 0x11;
 const DESTINATION_LOCAL: u8 = 0x01;
 
 const MAX_LEN: usize = 256;
+const UART_RX_BUF_SIZE: usize = 32;
 
 pub struct LSTReceiver<S: Read> {
     uart_rx: S,
-    framer: Framer,
-    buf: [u8; MAX_LEN],
+    framer: Framer<MAX_LEN>,
+    buffer: SerialRingbuffer<u8, {UART_RX_BUF_SIZE * 2}, UART_RX_BUF_SIZE>
 }
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[cfg_attr(feature = "std", derive(Debug))]
+#[derive(Debug)]
 pub enum ReceiverError<UartError> {
     ParseError(&'static str),
-    UartError(UartError),
+    ReadError(PushErr<UartError>),
 }
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[cfg_attr(feature = "std", derive(Debug))]
+#[derive(Debug)]
 pub struct LSTTelemetry {
     pub uptime: u32,
     pub rssi: i8,
@@ -42,8 +49,8 @@ pub enum LSTMessage<'a> {
 }
 
 impl<S: Read> LSTReceiver<S> {
-    pub fn new(uart_rx: S) -> Self {
-        Self { uart_rx, framer: Framer::new(), buf: [0u8; MAX_LEN] }
+    pub const fn new(uart_rx: S) -> Self {
+        Self { uart_rx, framer: Framer::new(), buffer: SerialRingbuffer::new(0) }
     }
     fn parse_telem(msg: &[u8]) -> Result<LSTTelemetry, ReceiverError<S::Error>> {
         // 62 bytes
@@ -71,22 +78,26 @@ impl<S: Read> LSTReceiver<S> {
             unknown => LSTMessage::Unknown(unknown),
         })
     }
-    pub async fn receive(&mut self) -> Result<LSTMessage<'_>, ReceiverError<S::Error>> {
+    async fn wait_for_msg(&mut self) -> Result<(), ReceiverError<S::Error>> {
+        self.framer.reset();
         loop {
-            let mut read_buf = [0u8; 1];
-            self.uart_rx.read(&mut read_buf).await.map_err(|e| ReceiverError::UartError(e))?;
-            if let Some(len) = self.framer.push(read_buf[0], &mut self.buf[..]) {
-                return Ok(match self.buf[DESTINATION_PTR] {
-                    // msg comming from this lst, not relay
-                    DESTINATION_LOCAL => Self::parse_local_msg(&self.buf[HEADER_LEN..len])?,
-                    // msg received from other lst
-                    DESTINATION_RELAY => LSTMessage::Relay(&self.buf[HEADER_LEN..len]),
-                    _ => LSTMessage::Unknown(0x00)
-                });
+            self.buffer.push_from_read(async |b| self.uart_rx.read(b).await).await.map_err(|e| ReceiverError::ReadError(e))?;
+            while let Ok(byte) = self.buffer.pop() {
+                if self.framer.push(byte).unwrap() {
+                    return Ok(());
+                }
             }
         }
     }
-    pub fn reset(&mut self) {
-        self.framer.reset();
+    pub async fn receive(&mut self) -> Result<LSTMessage<'_>, ReceiverError<S::Error>> {
+        self.wait_for_msg().await?;
+        let frame = self.framer.get().unwrap();
+        return Ok(match frame[DESTINATION_PTR] {
+            // msg comming from this lst, not relay
+            DESTINATION_LOCAL => Self::parse_local_msg(&frame[HEADER_LEN..])?,
+            // msg received from other lst
+            DESTINATION_RELAY => LSTMessage::Relay(&frame[HEADER_LEN..]),
+            _ => LSTMessage::Unknown(0x00)
+        });
     }
 }

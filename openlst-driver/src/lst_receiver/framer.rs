@@ -8,19 +8,27 @@ enum State {
         len: usize,
         pos: usize,
     },
+    Ready {
+        len: usize,
+    }
 }
-pub struct Framer {
+pub struct Framer<const N: usize> {
     state: State,
+    storage: [u8; N],
 }
 
-impl Framer {
-    pub fn new() -> Self {
+#[derive(Debug)]
+pub struct IsReady;
+
+impl<const N: usize> Framer<N> {
+    pub const fn new() -> Self {
         Self {
             state: State::Sync { magic_pos: 0 },
+            storage: [0u8; N]
         }
     }
 
-    pub fn push(&mut self, byte: u8, buf: &mut [u8]) -> Option<usize> {
+    pub fn push(&mut self, byte: u8) -> Result<bool, IsReady> {
         match self.state {
             State::Sync { ref mut magic_pos } => {
                 if byte == MAGIC[*magic_pos] {
@@ -44,15 +52,26 @@ impl Framer {
             }
 
             State::Payload { len, ref mut pos } => {
-                buf[*pos] = byte;
+                self.storage[*pos] = byte;
                 *pos += 1;
                 if *pos >= len {
-                    self.state = State::Sync { magic_pos: 0 };
-                    return Some(len);
+                    self.state = State::Ready { len };
+                    return Ok(true);
                 }
             }
+            
+            State::Ready { len: _ } => {
+                return Err(IsReady);
+            }
         }
-        None
+        Ok(false)
+    }
+    pub fn get(&self) -> Option<&[u8]> {
+        if let State::Ready { len } = self.state {
+            Some(&self.storage[..len])
+        } else {
+            None
+        }
     }
     pub fn reset(&mut self) {
         self.state = State::Sync { magic_pos: 0 };
