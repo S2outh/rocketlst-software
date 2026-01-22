@@ -21,7 +21,7 @@ const UART_RX_BUF_SIZE: usize = 32;
 pub struct LSTReceiver<S: Read> {
     uart_rx: S,
     framer: Framer<MAX_LEN>,
-    buffer: SerialRingbuffer<u8, {UART_RX_BUF_SIZE * 2}, UART_RX_BUF_SIZE>
+    buffer: SerialRingbuffer<u8, MAX_LEN, UART_RX_BUF_SIZE>
 }
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Debug)]
@@ -71,14 +71,14 @@ impl<S: Read> LSTReceiver<S> {
     }
     fn parse_local_msg(msg: &[u8]) -> Result<LSTMessage<'_>, ReceiverError<S::Error>> {
         // parsing the available commands from the openlst firmware
-        Ok(match msg[0] {
+        Ok(match msg.get(0).ok_or(ReceiverError::ParseError("No command byte"))? {
             0x10 => LSTMessage::Ack,
             0xFF => LSTMessage::Nack,
             0x18 => LSTMessage::Telem(Self::parse_telem(&msg[1..])?),
-            unknown => LSTMessage::Unknown(unknown),
+            unknown => LSTMessage::Unknown(*unknown),
         })
     }
-    async fn wait_for_msg(&mut self) -> Result<(), ReceiverError<S::Error>> {
+    async fn wait_for_frame(&mut self) -> Result<(), ReceiverError<S::Error>> {
         self.framer.reset();
         loop {
             self.buffer.push_from_read(async |b| self.uart_rx.read(b).await).await.map_err(|e| ReceiverError::ReadError(e))?;
@@ -90,7 +90,7 @@ impl<S: Read> LSTReceiver<S> {
         }
     }
     pub async fn receive(&mut self) -> Result<LSTMessage<'_>, ReceiverError<S::Error>> {
-        self.wait_for_msg().await?;
+        self.wait_for_frame().await?;
         let frame = self.framer.get().unwrap();
         return Ok(match frame[DESTINATION_PTR] {
             // msg comming from this lst, not relay
