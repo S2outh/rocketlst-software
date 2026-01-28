@@ -7,20 +7,19 @@ use embassy_stm32::{
 use embassy_time::{Duration, Instant, Timer, with_timeout};
 use openlst_driver::{lst_receiver::{LSTMessage, LSTReceiver}, lst_sender::{LSTCmd, LSTSender}};
 use south_common::{
-    Beacon, BeaconOperationError, LSTBeacon, telemetry as tm
+    Beacon, BeaconOperationError, LSTBeacon, TelemetryDefinition, telemetry as tm
 };
 
-/// take a beacon, add necessary headers and relay to RocketLST via uart
+/// send a beacon to the rocketlst with a specific intervall
 #[embassy_executor::task(pool_size = 3)]
 pub async fn lst_sender_thread(
-    send_intervall: u64,
+    send_intervall: Duration,
     beacon: &'static Mutex<ThreadModeRawMutex, dyn Beacon<Timestamp = i64>>,
     crc: &'static Mutex<ThreadModeRawMutex, Crc<'static>>,
     lst: &'static Mutex<ThreadModeRawMutex, LSTSender<UartTx<'static, Async>>>,
 ) {
+    let mut loop_time = Instant::now();
     loop {
-        let loop_len: Duration = Duration::from_millis(send_intervall);
-        let mut loop_time = Instant::now();
         info!("sending beacon");
         {
             let mut beacon = beacon.lock().await;
@@ -38,7 +37,7 @@ pub async fn lst_sender_thread(
             }
             beacon.flush();
         }
-        loop_time += loop_len;
+        loop_time += send_intervall;
         Timer::at(loop_time).await;
     }
 }
@@ -54,6 +53,11 @@ pub async fn can_receiver_thread(
         match can.receive().await {
             Ok(envelope) => {
                 if let embedded_can::Id::Standard(id) = envelope.frame.id() {
+                    // if id.as_raw() == tm::upper_sensor::baro::Pressure.id() {
+                    //     info!("========= received");
+                    // } else {
+                    //     info!("--------- received");
+                    // }
                     for beacon in beacons {
                         if let Err(e) = beacon
                             .lock()

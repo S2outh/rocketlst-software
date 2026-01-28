@@ -10,7 +10,7 @@ use embassy_executor::Spawner;
 use embassy_stm32::{
     Config, bind_interrupts, can::{self, CanConfigurator, RxFdBuf, TxFdBuf}, crc::{self, Crc}, gpio::{Level, Output, Speed}, mode::Async, peripherals::*, rcc::{self, mux::Fdcansel}, usart::{self, Uart, UartTx}, wdg::IndependentWatchdog
 };
-use embassy_time::Timer;
+use embassy_time::{Timer, Duration};
 use south_common::{
     Beacon, LSTBeacon, EPSBeacon, SensorboardBeacon, can_config::CanPeriphConfig, telemetry as tm
 };
@@ -27,9 +27,9 @@ const STARTUP_DELAY: u64 = 1000;
 const OPENLST_HWID: u16 = 0x2DEC;
 const NUM_RECV_BEC: usize = 2;
 
-const LST_BEACON_INTERVAL_MS: u64 = 10_000;
-const EPS_BEACON_INTERVAL_MS: u64 = 1_000;
-const SENSORBOARD_BEACON_INTERVAL_MS: u64 = 100;
+const LST_BEACON_INTERVAL: Duration = Duration::from_secs(10);
+const EPS_BEACON_INTERVAL: Duration = Duration::from_secs(1);
+const SENSORBOARD_BEACON_INTERVAL: Duration = Duration::from_millis(100);
 
 const WATCHDOG_TIMEOUT_US: u32 = 300_000;
 const WATCHDOG_PETTING_INTERVAL_US: u32 = WATCHDOG_TIMEOUT_US / 2;
@@ -169,9 +169,9 @@ async fn main(spawner: Spawner) {
     // LST sender startup
     Timer::after_millis(STARTUP_DELAY).await;
     spawner.must_spawn(io_threads::telemetry_thread(lst_beacon, lst_tx, lst_rx));
-    spawner.must_spawn(io_threads::lst_sender_thread(LST_BEACON_INTERVAL_MS, lst_beacon, crc, lst_tx));
-    spawner.must_spawn(io_threads::lst_sender_thread(EPS_BEACON_INTERVAL_MS, eps_beacon, crc, lst_tx));
-    spawner.must_spawn(io_threads::lst_sender_thread(SENSORBOARD_BEACON_INTERVAL_MS, sensorboard_beacon, crc, lst_tx));
+    spawner.must_spawn(io_threads::lst_sender_thread(LST_BEACON_INTERVAL, lst_beacon, crc, lst_tx));
+    spawner.must_spawn(io_threads::lst_sender_thread(EPS_BEACON_INTERVAL, eps_beacon, crc, lst_tx));
+    spawner.must_spawn(io_threads::lst_sender_thread(SENSORBOARD_BEACON_INTERVAL, sensorboard_beacon, crc, lst_tx));
 
     core::future::pending::<()>().await;
 }

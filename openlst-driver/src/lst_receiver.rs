@@ -58,14 +58,23 @@ impl<S: Read> LSTReceiver<S> {
             Err(ReceiverError::ParseError("telem msg too short"))
         } else {
             Ok(LSTTelemetry {
+                // u8 reserved: 0
                 uptime: u32::from_le_bytes(msg[1..5].try_into().unwrap()),
+                // u32 uart0 rx count: 5..9
+                // u32 uart1 rx count: 9..13
+                // u8 rx mode: 13
+                // u8 tx mode: 14
+                // i16 * 10 ADC channels: 15..35
                 rssi: msg[35] as i8,
                 lqi: msg[36] as u8,
+                // i8 last frequency estimate: 37
                 packets_sent: u32::from_le_bytes(msg[38..42].try_into().unwrap()),
+                // u32 cs_count (sending collision count): 42..46
                 packets_good: u32::from_le_bytes(msg[46..50].try_into().unwrap()),
                 packets_rejected_checksum: u32::from_le_bytes(msg[50..54].try_into().unwrap()),
                 packets_rejected_other: u32::from_le_bytes(msg[58..62].try_into().unwrap())
                     + u32::from_le_bytes(msg[54..58].try_into().unwrap()),
+                // reserved + custom
             })
         }
     }
