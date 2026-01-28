@@ -7,7 +7,7 @@ use embassy_stm32::{
 use embassy_time::{Duration, Instant, Timer, with_timeout};
 use openlst_driver::{lst_receiver::{LSTMessage, LSTReceiver}, lst_sender::{LSTCmd, LSTSender}};
 use south_common::{
-    Beacon, BeaconOperationError, LSTBeacon, TelemetryDefinition, telemetry as tm
+    Beacon, BeaconOperationError, LSTBeacon, telemetry as tm
 };
 
 /// send a beacon to the rocketlst with a specific intervall
@@ -118,12 +118,10 @@ pub async fn telemetry_thread(
                 },
                 Err(e) => {
                     error!("could not receive from lst: {}", e);
-                    lst_recv.reset();
                 }
             }
         } else {
             error!("lst did not answer");
-            lst_recv.reset();
         }
         loop_time += LST_TM_INTERVAL;
         Timer::at(loop_time).await;

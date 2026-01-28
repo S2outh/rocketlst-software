@@ -1,33 +1,25 @@
 
-mod framer;
-use framer::Framer;
-
-mod ringbuffer;
-use ringbuffer::SerialRingbuffer;
-
-use embedded_io_async::Read;
-
-use crate::lst_receiver::ringbuffer::PushErr;
+use embedded_io_async::{Read, ReadExactError};
 
 const HEADER_LEN: usize = 5;
+const MAGIC: [u8; 2] = [0x22, 0x69];
 
 const DESTINATION_PTR: usize = 0x04;
 const DESTINATION_RELAY: u8 = 0x11;
 const DESTINATION_LOCAL: u8 = 0x01;
 
 const MAX_LEN: usize = 256;
-const UART_RX_BUF_SIZE: usize = 32;
 
 pub struct LSTReceiver<S: Read> {
     uart_rx: S,
-    framer: Framer<MAX_LEN>,
-    buffer: SerialRingbuffer<u8, MAX_LEN, UART_RX_BUF_SIZE>
+    buffer: [u8; MAX_LEN],
 }
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Debug)]
 pub enum ReceiverError<UartError> {
     ParseError(&'static str),
-    ReadError(PushErr<UartError>),
+    ReadError(ReadExactError<UartError>),
+    MsgTooShort,
 }
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Debug)]
@@ -50,7 +42,7 @@ pub enum LSTMessage<'a> {
 
 impl<S: Read> LSTReceiver<S> {
     pub const fn new(uart_rx: S) -> Self {
-        Self { uart_rx, framer: Framer::new(), buffer: SerialRingbuffer::new(0) }
+        Self { uart_rx, buffer: [0; _] }
     }
     fn parse_telem(msg: &[u8]) -> Result<LSTTelemetry, ReceiverError<S::Error>> {
         // 62 bytes
@@ -87,29 +79,43 @@ impl<S: Read> LSTReceiver<S> {
             unknown => LSTMessage::Unknown(*unknown),
         })
     }
-    async fn wait_for_frame(&mut self) -> Result<(), ReceiverError<S::Error>> {
-        self.framer.reset();
+    pub async fn receive(&mut self) -> Result<LSTMessage<'_>, ReceiverError<S::Error>> {
+
+        // finding framing bytes
+        let mut magic_pos = 0;
         loop {
-            self.buffer.push_from_read(async |b| self.uart_rx.read(b).await).await.map_err(|e| ReceiverError::ReadError(e))?;
-            while let Ok(byte) = self.buffer.pop() {
-                if self.framer.push(byte).unwrap() {
-                    return Ok(());
+            let mut byte: u8 = 0;
+            self.uart_rx.read_exact(core::slice::from_mut(&mut byte)).await
+                .map_err(|e| ReceiverError::ReadError(e))?;
+            if byte == MAGIC[magic_pos] {
+                magic_pos += 1;
+                if magic_pos == MAGIC.len() {
+                    break;
                 }
+            } else {
+                magic_pos = 0;
             }
         }
-    }
-    pub async fn receive(&mut self) -> Result<LSTMessage<'_>, ReceiverError<S::Error>> {
-        self.wait_for_frame().await?;
-        let frame = self.framer.get().unwrap();
-        return Ok(match frame[DESTINATION_PTR] {
+
+        // read length
+        let mut len: u8 = 0;
+        self.uart_rx.read_exact(core::slice::from_mut(&mut len)).await
+            .map_err(|e| ReceiverError::ReadError(e))?;
+
+        if len < HEADER_LEN as u8 {
+            return Err(ReceiverError::MsgTooShort);
+        }
+
+        // read packet
+        self.uart_rx.read_exact(&mut self.buffer[..len as usize]).await
+            .map_err(|e| ReceiverError::ReadError(e))?;
+        
+        return Ok(match self.buffer[DESTINATION_PTR] {
             // msg comming from this lst, not relay
-            DESTINATION_LOCAL => Self::parse_local_msg(&frame[HEADER_LEN..])?,
+            DESTINATION_LOCAL => Self::parse_local_msg(&self.buffer[HEADER_LEN..])?,
             // msg received from other lst
-            DESTINATION_RELAY => LSTMessage::Relay(&frame[HEADER_LEN..]),
+            DESTINATION_RELAY => LSTMessage::Relay(&self.buffer[HEADER_LEN..]),
             _ => LSTMessage::Unknown(0x00)
         });
-    }
-    pub fn reset(&mut self) {
-        self.buffer.clear();
     }
 }
