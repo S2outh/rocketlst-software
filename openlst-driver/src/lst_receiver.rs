@@ -101,20 +101,21 @@ impl<S: Read> LSTReceiver<S> {
         let mut len: u8 = 0;
         self.uart_rx.read_exact(core::slice::from_mut(&mut len)).await
             .map_err(|e| ReceiverError::ReadError(e))?;
+        let len = len as usize;
 
-        if len < HEADER_LEN as u8 {
+        if len < HEADER_LEN {
             return Err(ReceiverError::MsgTooShort);
         }
 
         // read packet
-        self.uart_rx.read_exact(&mut self.buffer[..len as usize]).await
+        self.uart_rx.read_exact(&mut self.buffer[..len]).await
             .map_err(|e| ReceiverError::ReadError(e))?;
         
         return Ok(match self.buffer[DESTINATION_PTR] {
             // msg comming from this lst, not relay
-            DESTINATION_LOCAL => Self::parse_local_msg(&self.buffer[HEADER_LEN..])?,
+            DESTINATION_LOCAL => Self::parse_local_msg(&self.buffer[HEADER_LEN..len])?,
             // msg received from other lst
-            DESTINATION_RELAY => LSTMessage::Relay(&self.buffer[HEADER_LEN..]),
+            DESTINATION_RELAY => LSTMessage::Relay(&self.buffer[HEADER_LEN..len]),
             _ => LSTMessage::Unknown(0x00)
         });
     }
