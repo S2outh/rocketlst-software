@@ -86,7 +86,7 @@ impl<S: Read> LSTReceiver<S> {
         loop {
             let mut byte: u8 = 0;
             self.uart_rx.read_exact(core::slice::from_mut(&mut byte)).await
-                .map_err(|e| ReceiverError::ReadError(e))?;
+                .map_err(ReceiverError::ReadError)?;
             if byte == MAGIC[magic_pos] {
                 magic_pos += 1;
                 if magic_pos == MAGIC.len() {
@@ -100,7 +100,7 @@ impl<S: Read> LSTReceiver<S> {
         // read length
         let mut len: u8 = 0;
         self.uart_rx.read_exact(core::slice::from_mut(&mut len)).await
-            .map_err(|e| ReceiverError::ReadError(e))?;
+            .map_err(ReceiverError::ReadError)?;
         let len = len as usize;
 
         if len < HEADER_LEN {
@@ -109,7 +109,7 @@ impl<S: Read> LSTReceiver<S> {
 
         // read packet
         self.uart_rx.read_exact(&mut self.buffer[..len]).await
-            .map_err(|e| ReceiverError::ReadError(e))?;
+            .map_err(ReceiverError::ReadError)?;
         
         return Ok(match self.buffer[DESTINATION_PTR] {
             // msg comming from this lst, not relay

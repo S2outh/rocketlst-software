@@ -24,7 +24,7 @@ pub struct LSTSender<S: Write> {
 #[derive(Debug)]
 pub enum SenderError<UartError> {
     MessageTooLongError,
-    UartError(UartError),
+    WriteError(UartError),
 }
 
 impl<S: Write> LSTSender<S> {
@@ -54,8 +54,8 @@ impl<S: Write> LSTSender<S> {
 
         let mut idx = 0;
         while idx < packet.len() {
-            idx += self.uart_tx.write(&packet[idx..]).await.map_err(|e| SenderError::UartError(e))?;
-            self.uart_tx.flush().await.map_err(|e| SenderError::UartError(e))?;
+            idx += self.uart_tx.write(&packet[idx..]).await.map_err(SenderError::WriteError)?;
+            self.uart_tx.flush().await.map_err(SenderError::WriteError)?;
         }
         Ok(())
     }
@@ -67,8 +67,8 @@ impl<S: Write> LSTSender<S> {
 
         let mut idx = 0;
         while idx < packet.len() {
-            idx += self.uart_tx.write(&packet[idx..]).await.map_err(|e| SenderError::UartError(e))?;
-            self.uart_tx.flush().await.map_err(|e| SenderError::UartError(e))?;
+            idx += self.uart_tx.write(&packet[idx..]).await.map_err(SenderError::WriteError)?;
+            self.uart_tx.flush().await.map_err(SenderError::WriteError)?;
         }
         Ok(())
     }

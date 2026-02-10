@@ -39,7 +39,7 @@ static LRB: StaticCell<Mutex<ThreadModeRawMutex, LSTBeacon>> = StaticCell::new()
 static MRB: StaticCell<Mutex<ThreadModeRawMutex, EPSBeacon>> = StaticCell::new();
 static HRB: StaticCell<Mutex<ThreadModeRawMutex, SensorboardBeacon>> = StaticCell::new();
 
-static BL: StaticCell<[&'static Mutex<ThreadModeRawMutex, dyn Beacon<Timestamp = i64>>; NUM_RECV_BEC]> = StaticCell::new();
+static BL: StaticCell<[&'static Mutex<ThreadModeRawMutex, dyn Beacon<Timestamp = u64>>; NUM_RECV_BEC]> = StaticCell::new();
 
 // Static peripheral allocation
 static LST: StaticCell<Mutex<ThreadModeRawMutex, LSTSender<UartTx<'static, Async>>>> =

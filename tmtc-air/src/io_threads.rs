@@ -14,7 +14,7 @@ use south_common::{
 #[embassy_executor::task(pool_size = 3)]
 pub async fn lst_sender_thread(
     send_intervall: Duration,
-    beacon: &'static Mutex<ThreadModeRawMutex, dyn Beacon<Timestamp = i64>>,
+    beacon: &'static Mutex<ThreadModeRawMutex, dyn Beacon<Timestamp = u64>>,
     crc: &'static Mutex<ThreadModeRawMutex, Crc<'static>>,
     lst: &'static Mutex<ThreadModeRawMutex, LSTSender<UartTx<'static, Async>>>,
 ) {
@@ -23,7 +23,7 @@ pub async fn lst_sender_thread(
         info!("sending beacon");
         {
             let mut beacon = beacon.lock().await;
-            beacon.set_timestamp(Instant::now().as_millis() as i64);
+            beacon.set_timestamp(Instant::now().as_millis());
 
             let bytes = {
                 let mut crc = crc.lock().await;
@@ -45,7 +45,7 @@ pub async fn lst_sender_thread(
 /// receive can messages and put them in the corresponding beacons
 #[embassy_executor::task]
 pub async fn can_receiver_thread(
-    beacons: &'static [&'static Mutex<ThreadModeRawMutex, dyn Beacon<Timestamp = i64>>],
+    beacons: &'static [&'static Mutex<ThreadModeRawMutex, dyn Beacon<Timestamp = u64>>],
     can: BufferedFdCanReceiver,
 ) {
     loop {
