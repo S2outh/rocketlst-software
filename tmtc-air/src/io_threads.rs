@@ -66,7 +66,7 @@ pub async fn can_receiver_thread(
                             match e {
                                 BeaconOperationError::DefNotInBeacon => (),
                                 BeaconOperationError::OutOfMemory => {
-                                    error!("received incomplete value");
+                                    error!("received incomplete value: {}", id.as_raw());
                                 },
                             }
                         }
