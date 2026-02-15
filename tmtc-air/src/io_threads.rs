@@ -15,7 +15,7 @@ use openlst_driver::{
 use south_common::{Beacon, BeaconOperationError, LSTBeacon, telemetry as tm};
 
 /// send a beacon to the rocketlst with a specific intervall
-#[embassy_executor::task(pool_size = 3)]
+#[embassy_executor::task(pool_size = 5)]
 pub async fn lst_sender_thread(
     send_intervall: Duration,
     beacon: &'static Mutex<ThreadModeRawMutex, dyn Beacon<Timestamp = u64>>,
