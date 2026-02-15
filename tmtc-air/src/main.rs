@@ -8,11 +8,20 @@ use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, mutex::Mutex};
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::{
-    Config, bind_interrupts, can::{self, CanConfigurator, RxFdBuf, TxFdBuf}, crc::{self, Crc}, gpio::{Level, Output, Speed}, mode::Async, peripherals::*, rcc::{self, mux::Fdcansel}, usart::{self, Uart, UartTx}, wdg::IndependentWatchdog
+    Config, bind_interrupts,
+    can::{self, CanConfigurator, RxFdBuf, TxFdBuf},
+    crc::{self, Crc},
+    gpio::{Level, Output, Speed},
+    mode::Async,
+    peripherals::*,
+    rcc::{self, mux::Fdcansel},
+    usart::{self, Uart, UartTx},
+    wdg::IndependentWatchdog,
 };
-use embassy_time::{Timer, Duration};
+use embassy_time::{Duration, Timer};
 use south_common::{
-    Beacon, LSTBeacon, EPSBeacon, SensorboardBeacon, can_config::CanPeriphConfig, telemetry as tm
+    Beacon, EPSBeacon, HighRateUpperSensorBeacon, LSTBeacon, LowRateUpperSensorBeacon,
+    LowerSensorBeacon, can_config::CanPeriphConfig, telemetry as tm,
 };
 
 use {defmt_rtt as _, panic_probe as _};
@@ -25,21 +34,27 @@ use openlst_driver::lst_sender::LSTSender;
 // General setup stuff
 const STARTUP_DELAY: u64 = 1000;
 const OPENLST_HWID: u16 = 0x2DEC;
-const NUM_RECV_BEC: usize = 2;
+const NUM_RECV_BEC: usize = 4;
 
 const LST_BEACON_INTERVAL: Duration = Duration::from_secs(10);
-const EPS_BEACON_INTERVAL: Duration = Duration::from_secs(1);
-const SENSORBOARD_BEACON_INTERVAL: Duration = Duration::from_millis(100);
+const EPS_BEACON_INTERVAL: Duration = Duration::from_secs(5);
+const HIGH_RATE_UPPER_BEACON_INTERVAL: Duration = Duration::from_millis(100);
+const LOW_RATE_UPPER_BEACON_INTERVAL: Duration = Duration::from_secs(1);
+const LOWER_SENSOR_INTERVAL: Duration = Duration::from_secs(1);
 
 const WATCHDOG_TIMEOUT_US: u32 = 300_000;
 const WATCHDOG_PETTING_INTERVAL_US: u32 = WATCHDOG_TIMEOUT_US / 2;
 
 // Static beacon allocation
-static LRB: StaticCell<Mutex<ThreadModeRawMutex, LSTBeacon>> = StaticCell::new();
-static MRB: StaticCell<Mutex<ThreadModeRawMutex, EPSBeacon>> = StaticCell::new();
-static HRB: StaticCell<Mutex<ThreadModeRawMutex, SensorboardBeacon>> = StaticCell::new();
+static LTB: StaticCell<Mutex<ThreadModeRawMutex, LSTBeacon>> = StaticCell::new();
+static ESB: StaticCell<Mutex<ThreadModeRawMutex, EPSBeacon>> = StaticCell::new();
+static HUB: StaticCell<Mutex<ThreadModeRawMutex, HighRateUpperSensorBeacon>> = StaticCell::new();
+static LUB: StaticCell<Mutex<ThreadModeRawMutex, LowRateUpperSensorBeacon>> = StaticCell::new();
+static LSB: StaticCell<Mutex<ThreadModeRawMutex, LowerSensorBeacon>> = StaticCell::new();
 
-static BL: StaticCell<[&'static Mutex<ThreadModeRawMutex, dyn Beacon<Timestamp = u64>>; NUM_RECV_BEC]> = StaticCell::new();
+static BL: StaticCell<
+    [&'static Mutex<ThreadModeRawMutex, dyn Beacon<Timestamp = u64>>; NUM_RECV_BEC],
+> = StaticCell::new();
 
 // Static peripheral allocation
 static LST: StaticCell<Mutex<ThreadModeRawMutex, LSTSender<UartTx<'static, Async>>>> =
@@ -156,22 +171,59 @@ async fn main(spawner: Spawner) {
     let crc = CRC.init(Mutex::new(Crc::new(p.CRC, get_crc_config())));
 
     // -- Beacons
-    let lst_beacon = LRB.init(Mutex::new(LSTBeacon::new()));
-    let eps_beacon = MRB.init(Mutex::new(EPSBeacon::new()));
-    let sensorboard_beacon = HRB.init(Mutex::new(SensorboardBeacon::new()));
+    let lst_beacon = LTB.init(Mutex::new(LSTBeacon::new()));
+    let eps_beacon = ESB.init(Mutex::new(EPSBeacon::new()));
+    let high_rate_upper_beacon = HUB.init(Mutex::new(HighRateUpperSensorBeacon::new()));
+    let low_rate_upper_beacon = LUB.init(Mutex::new(LowRateUpperSensorBeacon::new()));
+    let lower_sensor_beacon = LSB.init(Mutex::new(LowerSensorBeacon::new()));
 
-    let receivable_beacons = BL.init([eps_beacon, sensorboard_beacon]);
+    let receivable_beacons = BL.init([
+        eps_beacon,
+        high_rate_upper_beacon,
+        low_rate_upper_beacon,
+        lower_sensor_beacon,
+    ]);
 
     // Startup
     spawner.must_spawn(petter(watchdog));
-    spawner.must_spawn(io_threads::can_receiver_thread(receivable_beacons, can_instance.reader()));
+    spawner.must_spawn(io_threads::can_receiver_thread(
+        receivable_beacons,
+        can_instance.reader(),
+    ));
 
     // LST sender startup
     Timer::after_millis(STARTUP_DELAY).await;
     spawner.must_spawn(io_threads::telemetry_thread(lst_beacon, lst_tx, lst_rx));
-    spawner.must_spawn(io_threads::lst_sender_thread(LST_BEACON_INTERVAL, lst_beacon, crc, lst_tx));
-    spawner.must_spawn(io_threads::lst_sender_thread(EPS_BEACON_INTERVAL, eps_beacon, crc, lst_tx));
-    spawner.must_spawn(io_threads::lst_sender_thread(SENSORBOARD_BEACON_INTERVAL, sensorboard_beacon, crc, lst_tx));
+    spawner.must_spawn(io_threads::lst_sender_thread(
+        LST_BEACON_INTERVAL,
+        lst_beacon,
+        crc,
+        lst_tx,
+    ));
+    spawner.must_spawn(io_threads::lst_sender_thread(
+        EPS_BEACON_INTERVAL,
+        eps_beacon,
+        crc,
+        lst_tx,
+    ));
+    spawner.must_spawn(io_threads::lst_sender_thread(
+        HIGH_RATE_UPPER_BEACON_INTERVAL,
+        high_rate_upper_beacon,
+        crc,
+        lst_tx,
+    ));
+    spawner.must_spawn(io_threads::lst_sender_thread(
+        LOW_RATE_UPPER_BEACON_INTERVAL,
+        low_rate_upper_beacon,
+        crc,
+        lst_tx,
+    ));
+    spawner.must_spawn(io_threads::lst_sender_thread(
+        LOWER_SENSOR_INTERVAL,
+        lower_sensor_beacon,
+        crc,
+        lst_tx,
+    ));
 
     core::future::pending::<()>().await;
 }

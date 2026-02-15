@@ -2,13 +2,17 @@ use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, mutex::Mutex};
 
 use defmt::*;
 use embassy_stm32::{
-    can::BufferedFdCanReceiver, crc::Crc, mode::Async, usart::{RingBufferedUartRx, UartTx}
+    can::BufferedFdCanReceiver,
+    crc::Crc,
+    mode::Async,
+    usart::{RingBufferedUartRx, UartTx},
 };
 use embassy_time::{Duration, Instant, Timer, with_timeout};
-use openlst_driver::{lst_receiver::{LSTMessage, LSTReceiver}, lst_sender::{LSTCmd, LSTSender}};
-use south_common::{
-    Beacon, BeaconOperationError, LSTBeacon, telemetry as tm
+use openlst_driver::{
+    lst_receiver::{LSTMessage, LSTReceiver},
+    lst_sender::{LSTCmd, LSTSender},
 };
+use south_common::{Beacon, BeaconOperationError, LSTBeacon, telemetry as tm};
 
 /// send a beacon to the rocketlst with a specific intervall
 #[embassy_executor::task(pool_size = 3)]
@@ -62,12 +66,13 @@ pub async fn can_receiver_thread(
                         if let Err(e) = beacon
                             .lock()
                             .await
-                            .insert_slice(tm::from_id(id.as_raw()).unwrap(), envelope.frame.data()) {
+                            .insert_slice(tm::from_id(id.as_raw()).unwrap(), envelope.frame.data())
+                        {
                             match e {
                                 BeaconOperationError::DefNotInBeacon => (),
                                 BeaconOperationError::OutOfMemory => {
                                     error!("received incomplete value: {}", id.as_raw());
-                                },
+                                }
                             }
                         }
                     }
@@ -87,7 +92,6 @@ pub async fn telemetry_thread(
     lst: &'static Mutex<ThreadModeRawMutex, LSTSender<UartTx<'static, Async>>>,
     mut lst_recv: LSTReceiver<RingBufferedUartRx<'static>>,
 ) {
-
     const LST_TM_INTERVAL: Duration = Duration::from_secs(10);
     const LST_TM_TIMEOUT: Duration = Duration::from_millis(200);
     let mut loop_time = Instant::now();
