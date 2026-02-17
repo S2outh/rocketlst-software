@@ -20,8 +20,10 @@ use embassy_stm32::{
 };
 use embassy_time::{Duration, Timer};
 use south_common::{
-    Beacon, EPSBeacon, HighRateUpperSensorBeacon, LSTBeacon, LowRateUpperSensorBeacon,
-    LowerSensorBeacon, can_config::CanPeriphConfig, telemetry as tm,
+    beacons::{EPSBeacon, HighRateUpperSensorBeacon, LSTBeacon, LowRateUpperSensorBeacon, LowerSensorBeacon},
+    can_config::CanPeriphConfig,
+    tmtc_system::Beacon,
+    definitions::telemetry as tm,
 };
 
 use {defmt_rtt as _, panic_probe as _};

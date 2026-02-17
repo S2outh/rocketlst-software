@@ -12,7 +12,11 @@ use openlst_driver::{
     lst_receiver::{LSTMessage, LSTReceiver},
     lst_sender::{LSTCmd, LSTSender},
 };
-use south_common::{Beacon, BeaconOperationError, LSTBeacon, telemetry as tm};
+use south_common::{
+    tmtc_system::{Beacon, BeaconOperationError}, 
+    beacons::LSTBeacon,
+    definitions::telemetry as tm
+};
 
 /// send a beacon to the rocketlst with a specific intervall
 #[embassy_executor::task(pool_size = 5)]
@@ -110,7 +114,7 @@ pub async fn telemetry_thread(
                         lst_beacon.uptime = Some(tm.uptime);
                         lst_beacon.rssi = Some(tm.rssi);
                         lst_beacon.lqi = Some(tm.lqi);
-                        lst_beacon.packets_send = Some(tm.packets_sent);
+                        lst_beacon.packets_sent = Some(tm.packets_sent);
                         lst_beacon.packets_good = Some(tm.packets_good);
                         lst_beacon.packets_bad_checksum = Some(tm.packets_rejected_checksum);
                         lst_beacon.packets_bad_other = Some(tm.packets_rejected_other);
