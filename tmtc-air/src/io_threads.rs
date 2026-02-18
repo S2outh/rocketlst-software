@@ -116,8 +116,8 @@ pub async fn telemetry_thread(
                         lst_beacon.lqi = Some(tm.lqi);
                         lst_beacon.packets_sent = Some(tm.packets_sent);
                         lst_beacon.packets_good = Some(tm.packets_good);
-                        lst_beacon.packets_bad_checksum = Some(tm.packets_rejected_checksum);
-                        lst_beacon.packets_bad_other = Some(tm.packets_rejected_other);
+                        lst_beacon.packets_rejected_checksum = Some(tm.packets_rejected_checksum);
+                        lst_beacon.packets_rejected_other = Some(tm.packets_rejected_other);
                     }
                     LSTMessage::Ack => info!("ack"),
                     LSTMessage::Nack => info!("nack"),
