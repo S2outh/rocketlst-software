@@ -26,6 +26,9 @@
 #define CONFIG_CAPABLE_RF_RX 0
 #define CONFIG_CAPABLE_RF_TX 1
 
+// Disable UART0
+// #define UART0_ENABLED 0
+
 // don't auto reboot
 #define AUTO_REBOOT_SECONDS 0   //auto reboot disabled
 

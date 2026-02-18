@@ -20,6 +20,8 @@
       devShells.default = pkgs.mkShell {
         buildInputs = with pkgs; [
           python3
+          uv
+
 					gcc
 					libgcc
 
@@ -29,9 +31,13 @@
         ];
 				LD_LIBRARY_PATH = "${pkgs.stdenv.cc.cc.lib}/lib";
         shellHook = ''
-				  python -m venv .venv
+          if [ ! -d ".venv" ]; then
+            echo "Creating virtual environment with uv..."
+            uv venv
+          fi
 				  source .venv/bin/activate
-          python -m pip install -e open-lst/tools
+
+          uv pip install -e open-lst/tools
 
 	        echo "Welcome in the OpenLST Shell!"
         '';
