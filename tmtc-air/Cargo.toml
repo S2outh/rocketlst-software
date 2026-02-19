@@ -4,7 +4,7 @@ version = "1.1.0"
 edition = "2024"
 
 [dependencies]
-embassy-stm32 = { version = "0.5.0", features = [ "defmt", "time", "time-driver-any", "stm32g0b1ke", "memory-x", "unstable-pac", "exti"]  }
+embassy-stm32 = { version = "0.5.0", features = [ "defmt", "time", "time-driver-any", "stm32h723vg", "memory-x", "unstable-pac", "exti"]  }
 embassy-sync = { version = "0.7.2", features = ["defmt"] }
 embassy-executor = { version = "0.9.1", features = ["arch-cortex-m", "executor-thread", "defmt"] }
 embassy-time = { version = "0.5.0", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
@@ -24,7 +24,7 @@ embedded-io-async = { version = "0.7.0" }
 embedded-can = "0.4.1"
 static_cell = "2.1.1"
 
-south-common = { version = "3.0.0", features = ["g0"], git = "ssh://git@github.com/S2outh/south-common.git" }
+south-common = { version = "3.0.0", features = ["h7"], git = "ssh://git@github.com/S2outh/south-common.git" }
 #south-common = { version = "1.0.0", path = "/home/eliseoc/WueSpace/South/south-common" }
 openlst-driver = { path = "../openlst-driver/", features = ["defmt"] }
 

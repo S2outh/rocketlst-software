@@ -11,19 +11,24 @@ use embassy_stm32::{
     Config, bind_interrupts,
     can::{self, CanConfigurator, RxFdBuf, TxFdBuf},
     crc::{self, Crc},
-    gpio::{Level, Output, Speed},
+    exti::{self, ExtiInput},
+    gpio::{Level, Output, Pull, Speed},
+    interrupt::typelevel::EXTI15_10,
     mode::Async,
     peripherals::*,
-    rcc::{self, mux::Fdcansel},
+    rcc,
     usart::{self, Uart, UartTx},
     wdg::IndependentWatchdog,
 };
 use embassy_time::{Duration, Timer};
 use south_common::{
-    beacons::{EPSBeacon, HighRateUpperSensorBeacon, LSTBeacon, LowRateUpperSensorBeacon, LowerSensorBeacon},
+    beacons::{
+        EPSBeacon, HighRateUpperSensorBeacon, LSTBeacon, LowRateUpperSensorBeacon,
+        LowerSensorBeacon,
+    },
     can_config::CanPeriphConfig,
-    tmtc_system::Beacon,
     definitions::telemetry as tm,
+    tmtc_system::Beacon,
 };
 
 use {defmt_rtt as _, panic_probe as _};
@@ -76,37 +81,51 @@ static S_RX_BUF: StaticCell<[u8; S_RX_BUF_SIZE]> = StaticCell::new();
 
 // bin can interrupts
 bind_interrupts!(struct Irqs {
-    TIM16_FDCAN_IT0 => can::IT0InterruptHandler<FDCAN1>;
-    TIM17_FDCAN_IT1 => can::IT1InterruptHandler<FDCAN1>;
-    USART3_4_5_6_LPUART1 => usart::InterruptHandler<USART5>;
+    //FDCAN1_IT0 => can::IT0InterruptHandler<FDCAN1>;
+    //FDCAN1_IT1 => can::IT1InterruptHandler<FDCAN1>;
+
+    FDCAN2_IT0 => can::IT0InterruptHandler<FDCAN2>;
+    FDCAN2_IT1 => can::IT1InterruptHandler<FDCAN2>;
+
+    //USART2 => usart::InterruptHandler<USART2>;
+    USART3 => usart::InterruptHandler<USART3>;
+
+    EXTI15_10 => exti::InterruptHandler<EXTI15_10>;
 });
 
 /// Watchdog petting task
 #[embassy_executor::task]
-async fn petter(mut watchdog: IndependentWatchdog<'static, IWDG>) {
+async fn petter(mut watchdog: IndependentWatchdog<'static, IWDG1>) {
     loop {
         watchdog.pet();
         Timer::after_micros(WATCHDOG_PETTING_INTERVAL_US.into()).await;
     }
 }
 
-/// config rcc for higher sysclock and fdcan periph clock to make sure
-/// all messages can be received without package drop
+/// CC feedback
+#[embassy_executor::task(pool_size = 2)]
+async fn cc_mode(mut pin: ExtiInput<'static>, mut led: Output<'static>) {
+    loop {
+        pin.wait_for_any_edge().await;
+        led.toggle();
+    }
+}
+
+/// config rcc
 fn get_rcc_config() -> rcc::Config {
     let mut rcc_config = rcc::Config::default();
-    rcc_config.hsi = Some(rcc::Hsi {
-        sys_div: rcc::HsiSysDiv::DIV1,
-    });
-    rcc_config.sys = rcc::Sysclk::PLL1_R;
-    rcc_config.pll = Some(rcc::Pll {
+    rcc_config.hsi = Some(rcc::HSIPrescaler::DIV1); // 64 MHz
+    rcc_config.sys = rcc::Sysclk::HSI; // cpu runs with 64 MHz
+    rcc_config.pll1 = Some(rcc::Pll {
         source: rcc::PllSource::HSI,
-        prediv: rcc::PllPreDiv::DIV1,
-        mul: rcc::PllMul::MUL8,
-        divp: None,
-        divq: Some(rcc::PllQDiv::DIV2),
-        divr: Some(rcc::PllRDiv::DIV2),
+        prediv: rcc::PllPreDiv::DIV8,   // 8 MHz
+        mul: rcc::PllMul::MUL40,        // 320 MHz
+        divp: None,                     // 320 MHz
+        divq: Some(rcc::PllDiv::DIV10), // 32 MHz
+        divr: Some(rcc::PllDiv::DIV5),  // 64 MHz
     });
-    rcc_config.mux.fdcansel = Fdcansel::PLL1_Q;
+    rcc_config.mux.fdcansel = rcc::mux::Fdcansel::PLL1_Q; // can runs with 32 MHz
+    rcc_config.voltage_scale = rcc::VoltageScale::Scale1;
     rcc_config
 }
 
@@ -131,12 +150,13 @@ async fn main(spawner: Spawner) {
     info!("Launching");
 
     // unleash independent watchdog
-    let mut watchdog = IndependentWatchdog::new(p.IWDG, WATCHDOG_TIMEOUT_US);
+    let mut watchdog = IndependentWatchdog::new(p.IWDG1, WATCHDOG_TIMEOUT_US);
     watchdog.unleash();
 
     // can configuration
     let mut can_configurator =
-        CanPeriphConfig::new(CanConfigurator::new(p.FDCAN1, p.PA11, p.PA12, Irqs));
+    //    CanPeriphConfig::new(CanConfigurator::new(p.FDCAN1, p.PD0, p.PD1, Irqs));
+        CanPeriphConfig::new(CanConfigurator::new(p.FDCAN2, p.PB5, p.PB6, Irqs));
 
     can_configurator
         .add_receive_topic_range(tm::id_range())
@@ -148,16 +168,29 @@ async fn main(spawner: Spawner) {
     );
 
     // set can standby pin to low
-    let _can_standby = Output::new(p.PA10, Level::Low, Speed::Low);
+    // let _can_standby = Output::new(p.PD7, Level::Low, Speed::Low);
+    let _can_standby = Output::new(p.PB7, Level::Low, Speed::Low);
 
     // -- Uart configuration
     let mut uart_config = usart::Config::default();
     uart_config.baudrate = 115200;
 
+    //let (uart_tx, uart_rx) = Uart::new(
+    //    p.USART2,
+    //    p.PA3,
+    //    p.PD5,
+    //    Irqs,
+    //    p.DMA1_CH1,
+    //    p.DMA1_CH2,
+    //    uart_config,
+    //)
+    //.unwrap()
+    //.split();
+
     let (uart_tx, uart_rx) = Uart::new(
-        p.USART5,
-        p.PB4,
-        p.PB3,
+        p.USART3,
+        p.PD9,
+        p.PB10,
         Irqs,
         p.DMA1_CH1,
         p.DMA1_CH2,
@@ -186,16 +219,25 @@ async fn main(spawner: Spawner) {
         lower_sensor_beacon,
     ]);
 
+    // lst feedback pins
+    let cc_rx_pin = ExtiInput::new(p.PD14, p.EXTI14, Pull::None, Irqs);
+    let cc_tx_pin = ExtiInput::new(p.PD13, p.EXTI13, Pull::None, Irqs);
+
+    let cc_rx_led = Output::new(p.PE7, Level::Low, Speed::Low);
+    let cc_tx_led = Output::new(p.PE8, Level::Low, Speed::Low);
+
     // Startup
     spawner.must_spawn(petter(watchdog));
     spawner.must_spawn(io_threads::can_receiver_thread(
         receivable_beacons,
         can_instance.reader(),
     ));
+    spawner.must_spawn(io_threads::telemetry_thread(lst_beacon, lst_tx, lst_rx));
+    spawner.must_spawn(cc_mode(cc_rx_pin, cc_rx_led));
+    spawner.must_spawn(cc_mode(cc_tx_pin, cc_tx_led));
 
     // LST sender startup
     Timer::after_millis(STARTUP_DELAY).await;
-    spawner.must_spawn(io_threads::telemetry_thread(lst_beacon, lst_tx, lst_rx));
     spawner.must_spawn(io_threads::lst_sender_thread(
         LST_BEACON_INTERVAL,
         lst_beacon,

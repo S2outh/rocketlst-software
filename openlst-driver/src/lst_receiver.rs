@@ -1,4 +1,3 @@
-
 use embedded_io_async::{Read, ReadExactError};
 
 const HEADER_LEN: usize = 5;
@@ -42,7 +41,10 @@ pub enum LSTMessage<'a> {
 
 impl<S: Read> LSTReceiver<S> {
     pub const fn new(uart_rx: S) -> Self {
-        Self { uart_rx, buffer: [0; _] }
+        Self {
+            uart_rx,
+            buffer: [0; _],
+        }
     }
     fn parse_telem(msg: &[u8]) -> Result<LSTTelemetry, ReceiverError<S::Error>> {
         // 62 bytes
@@ -72,20 +74,26 @@ impl<S: Read> LSTReceiver<S> {
     }
     fn parse_local_msg(msg: &[u8]) -> Result<LSTMessage<'_>, ReceiverError<S::Error>> {
         // parsing the available commands from the openlst firmware
-        Ok(match msg.get(0).ok_or(ReceiverError::ParseError("No command byte"))? {
-            0x10 => LSTMessage::Ack,
-            0xFF => LSTMessage::Nack,
-            0x18 => LSTMessage::Telem(Self::parse_telem(&msg[1..])?),
-            unknown => LSTMessage::Unknown(*unknown),
-        })
+        Ok(
+            match msg
+                .get(0)
+                .ok_or(ReceiverError::ParseError("No command byte"))?
+            {
+                0x10 => LSTMessage::Ack,
+                0xFF => LSTMessage::Nack,
+                0x18 => LSTMessage::Telem(Self::parse_telem(&msg[1..])?),
+                unknown => LSTMessage::Unknown(*unknown),
+            },
+        )
     }
     pub async fn receive(&mut self) -> Result<LSTMessage<'_>, ReceiverError<S::Error>> {
-
         // finding framing bytes
         let mut magic_pos = 0;
         loop {
             let mut byte: u8 = 0;
-            self.uart_rx.read_exact(core::slice::from_mut(&mut byte)).await
+            self.uart_rx
+                .read_exact(core::slice::from_mut(&mut byte))
+                .await
                 .map_err(ReceiverError::ReadError)?;
             if byte == MAGIC[magic_pos] {
                 magic_pos += 1;
@@ -99,7 +107,9 @@ impl<S: Read> LSTReceiver<S> {
 
         // read length
         let mut len: u8 = 0;
-        self.uart_rx.read_exact(core::slice::from_mut(&mut len)).await
+        self.uart_rx
+            .read_exact(core::slice::from_mut(&mut len))
+            .await
             .map_err(ReceiverError::ReadError)?;
         let len = len as usize;
 
@@ -108,15 +118,17 @@ impl<S: Read> LSTReceiver<S> {
         }
 
         // read packet
-        self.uart_rx.read_exact(&mut self.buffer[..len]).await
+        self.uart_rx
+            .read_exact(&mut self.buffer[..len])
+            .await
             .map_err(ReceiverError::ReadError)?;
-        
+
         return Ok(match self.buffer[DESTINATION_PTR] {
             // msg comming from this lst, not relay
             DESTINATION_LOCAL => Self::parse_local_msg(&self.buffer[HEADER_LEN..len])?,
             // msg received from other lst
             DESTINATION_RELAY => LSTMessage::Relay(&self.buffer[HEADER_LEN..len]),
-            _ => LSTMessage::Unknown(0x00)
+            _ => LSTMessage::Unknown(0x00),
         });
     }
 }

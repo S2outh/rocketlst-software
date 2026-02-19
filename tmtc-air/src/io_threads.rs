@@ -7,15 +7,15 @@ use embassy_stm32::{
     mode::Async,
     usart::{RingBufferedUartRx, UartTx},
 };
-use embassy_time::{Duration, Instant, Timer, with_timeout};
+use embassy_time::{Duration, Instant, Ticker, with_timeout};
 use openlst_driver::{
     lst_receiver::{LSTMessage, LSTReceiver},
     lst_sender::{LSTCmd, LSTSender},
 };
 use south_common::{
-    tmtc_system::{Beacon, BeaconOperationError}, 
     beacons::LSTBeacon,
-    definitions::telemetry as tm
+    definitions::telemetry as tm,
+    tmtc_system::{Beacon, BeaconOperationError},
 };
 
 /// send a beacon to the rocketlst with a specific intervall
@@ -26,9 +26,8 @@ pub async fn lst_sender_thread(
     crc: &'static Mutex<ThreadModeRawMutex, Crc<'static>>,
     lst: &'static Mutex<ThreadModeRawMutex, LSTSender<UartTx<'static, Async>>>,
 ) {
-    let mut loop_time = Instant::now();
+    let mut ticker = Ticker::every(send_intervall);
     loop {
-        info!("sending beacon");
         {
             let mut beacon = beacon.lock().await;
             beacon.set_timestamp(Instant::now().as_millis());
@@ -43,10 +42,10 @@ pub async fn lst_sender_thread(
             if let Err(e) = lst.lock().await.send(bytes).await {
                 error!("could not send via lsp: {}", e);
             }
+            info!("sending beacon: {}", beacon.name());
             beacon.flush();
         }
-        loop_time += send_intervall;
-        Timer::at(loop_time).await;
+        ticker.next().await;
     }
 }
 
@@ -61,11 +60,6 @@ pub async fn can_receiver_thread(
         match can.receive().await {
             Ok(envelope) => {
                 if let embedded_can::Id::Standard(id) = envelope.frame.id() {
-                    // if id.as_raw() == tm::upper_sensor::baro::Pressure.id() {
-                    //     info!("========= received");
-                    // } else {
-                    //     info!("--------- received");
-                    // }
                     for beacon in beacons {
                         if let Err(e) = beacon
                             .lock()
@@ -98,7 +92,7 @@ pub async fn telemetry_thread(
 ) {
     const LST_TM_INTERVAL: Duration = Duration::from_secs(10);
     const LST_TM_TIMEOUT: Duration = Duration::from_millis(200);
-    let mut loop_time = Instant::now();
+    let mut ticker = Ticker::every(LST_TM_INTERVAL);
     loop {
         lst.lock()
             .await
@@ -131,7 +125,6 @@ pub async fn telemetry_thread(
         } else {
             error!("lst did not answer");
         }
-        loop_time += LST_TM_INTERVAL;
-        Timer::at(loop_time).await;
+        ticker.next().await;
     }
 }

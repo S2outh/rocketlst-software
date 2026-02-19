@@ -30,7 +30,8 @@
         devShells.default =
         let
           toolchain = pkgs.fenix.complete;
-          std-lib = pkgs.fenix.targets.thumbv6m-none-eabi.latest;
+          rust-analyzer = pkgs.fenix.rust-analyzer;
+          std-lib = pkgs.fenix.targets.thumbv7em-none-eabihf.latest;
           rust-pkgs = pkgs.fenix.combine [
             toolchain.rustc-unwrapped
             toolchain.rust-src
@@ -43,6 +44,7 @@
         pkgs.mkShell {
           buildInputs = with pkgs; [
             rust-pkgs
+            rust-analyzer
 
             # extra cargo tools
             cargo-edit
