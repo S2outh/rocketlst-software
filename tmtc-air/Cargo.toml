@@ -25,8 +25,9 @@ embedded-can = "0.4.1"
 static_cell = "2.1.1"
 
 south-common = { version = "3.0.0", features = ["h7"], git = "ssh://git@github.com/S2outh/south-common.git" }
-#south-common = { version = "1.0.0", path = "/home/eliseoc/WueSpace/South/south-common" }
-openlst-driver = { path = "../openlst-driver/", features = ["defmt"] }
+
+openlst-driver = { features = ["defmt"], git = "ssh://git@github.com/S2outh/rocketlst-software.git" }
+#openlst-driver = { features = ["defmt"], path = "../openlst-driver" }
 
 [profile.release]
 debug = 2
