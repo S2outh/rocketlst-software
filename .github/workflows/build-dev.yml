@@ -85,8 +85,9 @@ jobs:
           path: ./fw
 
       - name: Run integration tests
-        uses: S2outh/hil-tests@v1.7
+        uses: S2outh/hil-tests@main
         with:
+          probe-name: probe-open-lst-1
           binary-file: ${{ github.workspace }}/fw/tmtc-lst-air
           fw-version: ${{ needs.build.outputs.fw_version }}
           fw-hash: ${{ needs.build.outputs.fw_hash }}
