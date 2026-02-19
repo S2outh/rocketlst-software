@@ -59,7 +59,7 @@ jobs:
         uses: NixOS/nix-installer-action@main
         with:
           extra-conf: |
-            experimental-features = nix-command flake
+            experimental-features = nix-command flakes
 
       - name: Build (nix)
         shell: bash

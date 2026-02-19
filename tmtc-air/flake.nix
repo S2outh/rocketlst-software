@@ -32,7 +32,7 @@
         };
         profile = pkgs.fenix.complete;
         rust-analyzer = pkgs.fenix.rust-analyzer;
-        std-lib = pkgs.fenix.targets.thumbv6m-none-eabi.latest;
+        std-lib = pkgs.fenix.targets.thumbv7em-none-eabihf.latest;
         rust-toolchain = pkgs.fenix.combine [
           profile.rustc-unwrapped
           profile.rust-src
