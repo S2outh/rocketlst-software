@@ -27,8 +27,7 @@ pub async fn lst_sender_thread(
     lst: &'static Mutex<ThreadModeRawMutex, LSTSender<UartTx<'static, Async>>>,
 ) {
     let mut ticker = Ticker::every(send_intervall);
-    loop {
-        {
+    loop {{
             let mut beacon = beacon.lock().await;
             beacon.set_timestamp(Instant::now().as_millis());
 
@@ -56,6 +55,7 @@ pub async fn can_receiver_thread(
     can: BufferedFdCanReceiver,
 ) {
     loop {
+        trace!("can");
         // receive from can
         match can.receive().await {
             Ok(envelope) => {
@@ -94,6 +94,7 @@ pub async fn telemetry_thread(
     const LST_TM_TIMEOUT: Duration = Duration::from_millis(200);
     let mut ticker = Ticker::every(LST_TM_INTERVAL);
     loop {
+        trace!("telemetry");
         lst.lock()
             .await
             .send_cmd(LSTCmd::GetTelem)

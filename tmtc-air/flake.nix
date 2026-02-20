@@ -31,7 +31,6 @@
           ];
         };
         profile = pkgs.fenix.complete;
-        rust-analyzer = pkgs.fenix.rust-analyzer;
         std-lib = pkgs.fenix.targets.thumbv7em-none-eabihf.latest;
         rust-toolchain = pkgs.fenix.combine [
           profile.rustc-unwrapped
@@ -47,7 +46,7 @@
         pkgs.mkShell {
           buildInputs = with pkgs; [
             rust-toolchain
-            rust-analyzer
+            rust-analyzer-nightly
 
             # extra cargo tools
             cargo-edit
@@ -60,7 +59,7 @@
           # set the rust src for rust_analyzer
           RUST_SRC_PATH = "${rust-toolchain}/lib/rustlib/src/rust/library";
           # set default defmt log level
-          DEFMT_LOG = "info";
+          DEFMT_LOG = "trace";
         };
 
         packages.default = 

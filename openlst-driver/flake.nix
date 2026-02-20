@@ -39,6 +39,7 @@
         pkgs.mkShell {
           buildInputs = with pkgs; [
             rust-toolchain
+            rust-analyzer-nightly
 
             # extra cargo tools
             cargo-edit

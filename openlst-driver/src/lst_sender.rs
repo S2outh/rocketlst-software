@@ -81,18 +81,16 @@ impl<S: Write> LSTSender<S> {
             .unwrap();
         packet.push(cmd as u8).unwrap();
 
-        let mut idx = 0;
-        while idx < packet.len() {
-            idx += self
-                .uart_tx
-                .write(&packet[idx..])
-                .await
-                .map_err(SenderError::WriteError)?;
-            self.uart_tx
-                .flush()
-                .await
-                .map_err(SenderError::WriteError)?;
-        }
+        self.uart_tx
+            .write_all(&packet)
+            .await
+            .map_err(SenderError::WriteError)?;
+
+        self.uart_tx
+            .flush()
+            .await
+            .map_err(SenderError::WriteError)?;
+
         Ok(())
     }
 }
