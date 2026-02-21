@@ -3,7 +3,6 @@ use heapless::Vec;
 
 const FULL_HEADER_LEN: usize = 8;
 const HEADER_LEN: u8 = 5;
-const CMD_LEN: usize = FULL_HEADER_LEN + 1;
 const MAX_LEN: usize = 256;
 
 const DESTINATION_RELAY: u8 = 0x11;
@@ -49,48 +48,34 @@ impl<S: Write> LSTSender<S> {
         self.seq_num = self.seq_num.wrapping_add(1);
         header
     }
-    pub async fn send(&mut self, msg: &[u8]) -> Result<(), SenderError<S::Error>> {
+    async fn send(&mut self, msg: &[u8], destination: u8) -> Result<(), SenderError<S::Error>> {
         if msg.len() > MAX_LEN - FULL_HEADER_LEN {
             return Err(SenderError::MessageTooLongError);
         }
 
         let mut packet: Vec<u8, MAX_LEN> = Vec::new();
         packet
-            .extend_from_slice(&self.get_header(msg.len() as u8, DESTINATION_RELAY))
+            .extend_from_slice(&self.get_header(msg.len() as u8, destination))
             .unwrap();
         packet.extend_from_slice(msg).unwrap();
 
-        let mut idx = 0;
-        while idx < packet.len() {
-            idx += self
-                .uart_tx
-                .write(&packet[idx..])
-                .await
-                .map_err(SenderError::WriteError)?;
-            self.uart_tx
-                .flush()
-                .await
-                .map_err(SenderError::WriteError)?;
-        }
-        Ok(())
-    }
-    pub async fn send_cmd(&mut self, cmd: LSTCmd) -> Result<(), SenderError<S::Error>> {
-        let mut packet: Vec<u8, CMD_LEN> = Vec::new();
-        packet
-            .extend_from_slice(&self.get_header(1, DESTINATION_LOCAL))
-            .unwrap();
-        packet.push(cmd as u8).unwrap();
+        #[cfg(feature = "defmt")]
+        defmt::trace!("start writing lst packet");
 
         self.uart_tx
             .write_all(&packet)
             .await
             .map_err(SenderError::WriteError)?;
 
-        self.uart_tx
-            .flush()
-            .await
-            .map_err(SenderError::WriteError)?;
+        #[cfg(feature = "defmt")]
+        defmt::trace!("end writing lst packet");
 
         Ok(())
+    }
+    pub async fn relay(&mut self, msg: &[u8]) -> Result<(), SenderError<S::Error>> {
+        self.send(msg, DESTINATION_RELAY).await
+    }
+    pub async fn cmd(&mut self, cmd: LSTCmd) -> Result<(), SenderError<S::Error>> {
+        self.send(core::slice::from_ref(&(cmd as u8)), DESTINATION_LOCAL).await
     }
 }
