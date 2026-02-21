@@ -123,6 +123,9 @@ impl<S: Read> LSTReceiver<S> {
             .await
             .map_err(ReceiverError::ReadError)?;
 
+        #[cfg(feature = "defmt")]
+        defmt::trace!("read lst packet");
+
         return Ok(match self.buffer[DESTINATION_PTR] {
             // msg comming from this lst, not relay
             DESTINATION_LOCAL => Self::parse_local_msg(&self.buffer[HEADER_LEN..len])?,

@@ -26,8 +26,8 @@ static_cell = "2.1.1"
 
 south-common = { version = "3.0.0", features = ["h7"], git = "ssh://git@github.com/S2outh/south-common.git" }
 
-openlst-driver = { features = ["defmt"], git = "ssh://git@github.com/S2outh/rocketlst-software.git" }
-#openlst-driver = { features = ["defmt"], path = "../openlst-driver" }
+#openlst-driver = { features = ["defmt"], git = "ssh://git@github.com/S2outh/rocketlst-software.git" }
+openlst-driver = { features = ["defmt"], path = "../openlst-driver" }
 
 [profile.release]
 debug = 2

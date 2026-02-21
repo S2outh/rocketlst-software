@@ -27,10 +27,11 @@ pub async fn lst_sender_thread(
     lst: &'static Mutex<ThreadModeRawMutex, LSTSender<UartTx<'static, Async>>>,
 ) {
     let mut ticker = Ticker::every(send_intervall);
-    loop {
-        {
+    loop {{
             let mut beacon = beacon.lock().await;
             beacon.set_timestamp(Instant::now().as_millis());
+
+            info!("sending beacon: {}", beacon.name());
 
             let bytes = {
                 let mut crc = crc.lock().await;
@@ -39,10 +40,9 @@ pub async fn lst_sender_thread(
                 beacon.to_bytes(&mut crc_func)
             };
 
-            if let Err(e) = lst.lock().await.send(bytes).await {
+            if let Err(e) = lst.lock().await.relay(bytes).await {
                 error!("could not send via lsp: {}", e);
             }
-            info!("sending beacon: {}", beacon.name());
             beacon.flush();
         }
         ticker.next().await;
@@ -96,7 +96,7 @@ pub async fn telemetry_thread(
     loop {
         lst.lock()
             .await
-            .send_cmd(LSTCmd::GetTelem)
+            .cmd(LSTCmd::GetTelem)
             .await
             .unwrap_or_else(|e| error!("could not send cmd to lst: {}", e));
         if let Ok(lst_answer) = with_timeout(LST_TM_TIMEOUT, lst_recv.receive()).await {

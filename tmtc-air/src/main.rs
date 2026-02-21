@@ -98,6 +98,7 @@ bind_interrupts!(struct Irqs {
 async fn petter(mut watchdog: IndependentWatchdog<'static, IWDG1>) {
     loop {
         watchdog.pet();
+        trace!("petter");
         Timer::after_micros(WATCHDOG_PETTING_INTERVAL_US.into()).await;
     }
 }
@@ -115,17 +116,21 @@ async fn cc_mode(mut pin: ExtiInput<'static>, mut led: Output<'static>) {
 fn get_rcc_config() -> rcc::Config {
     let mut rcc_config = rcc::Config::default();
     rcc_config.hsi = Some(rcc::HSIPrescaler::DIV1); // 64 MHz
-    rcc_config.sys = rcc::Sysclk::HSI; // cpu runs with 64 MHz
     rcc_config.pll1 = Some(rcc::Pll {
         source: rcc::PllSource::HSI,
         prediv: rcc::PllPreDiv::DIV8,   // 8 MHz
         mul: rcc::PllMul::MUL40,        // 320 MHz
-        divp: None,                     // 320 MHz
-        divq: Some(rcc::PllDiv::DIV10), // 32 MHz
+        divp: None,                     // Deactivated
+        divq: Some(rcc::PllDiv::DIV5),  // 64 MHz
         divr: Some(rcc::PllDiv::DIV5),  // 64 MHz
     });
-    rcc_config.mux.fdcansel = rcc::mux::Fdcansel::PLL1_Q; // can runs with 32 MHz
-    rcc_config.voltage_scale = rcc::VoltageScale::Scale1;
+    rcc_config.sys = rcc::Sysclk::HSI; // cpu runs with 64 MHz
+    rcc_config.mux.fdcansel = rcc::mux::Fdcansel::PLL1_Q; // can runs with 64 MHz
+    rcc_config.voltage_scale = rcc::VoltageScale::Scale1; // voltage scale for max 225 MHz
+    //rcc_config.apb1_pre = rcc::APBPrescaler::DIV2;
+    //rcc_config.apb2_pre = rcc::APBPrescaler::DIV2;
+    //rcc_config.apb3_pre = rcc::APBPrescaler::DIV2;
+    //rcc_config.apb4_pre = rcc::APBPrescaler::DIV2;
     rcc_config
 }
 
