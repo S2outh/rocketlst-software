@@ -120,17 +120,18 @@ fn get_rcc_config() -> rcc::Config {
         source: rcc::PllSource::HSI,
         prediv: rcc::PllPreDiv::DIV8,   // 8 MHz
         mul: rcc::PllMul::MUL40,        // 320 MHz
-        divp: None,                     // Deactivated
-        divq: Some(rcc::PllDiv::DIV5),  // 64 MHz
+        divp: Some(rcc::PllDiv::DIV2),  // 160 MHz
+        divq: Some(rcc::PllDiv::DIV2),  // 160 MHz
         divr: Some(rcc::PllDiv::DIV5),  // 64 MHz
     });
-    rcc_config.sys = rcc::Sysclk::HSI; // cpu runs with 64 MHz
-    rcc_config.mux.fdcansel = rcc::mux::Fdcansel::PLL1_Q; // can runs with 64 MHz
+    rcc_config.sys = rcc::Sysclk::HSI; // cpu runs with 160 MHz
+    rcc_config.mux.fdcansel = rcc::mux::Fdcansel::PLL1_Q; // can runs with 160 MHz
     rcc_config.voltage_scale = rcc::VoltageScale::Scale1; // voltage scale for max 225 MHz
-    //rcc_config.apb1_pre = rcc::APBPrescaler::DIV2;
-    //rcc_config.apb2_pre = rcc::APBPrescaler::DIV2;
-    //rcc_config.apb3_pre = rcc::APBPrescaler::DIV2;
-    //rcc_config.apb4_pre = rcc::APBPrescaler::DIV2;
+
+    rcc_config.apb1_pre = rcc::APBPrescaler::DIV2; // APB 1-4 all run with 80 MHz
+    rcc_config.apb2_pre = rcc::APBPrescaler::DIV2;
+    rcc_config.apb3_pre = rcc::APBPrescaler::DIV2;
+    rcc_config.apb4_pre = rcc::APBPrescaler::DIV2;
     rcc_config
 }
 
