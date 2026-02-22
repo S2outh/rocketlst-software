@@ -13,7 +13,7 @@ use openlst_driver::{
     lst_sender::{LSTCmd, LSTSender},
 };
 use south_common::{
-    beacons::LSTBeacon,
+    beacons::{LSTBeacon},
     definitions::telemetry as tm,
     tmtc_system::{Beacon, BeaconOperationError},
 };
@@ -31,7 +31,7 @@ pub async fn lst_sender_thread(
             let mut beacon = beacon.lock().await;
             beacon.set_timestamp(Instant::now().as_millis());
 
-            info!("sending beacon: {}", beacon.name());
+            debug!("sending beacon: {}", beacon.name());
 
             let bytes = {
                 let mut crc = crc.lock().await;
@@ -103,7 +103,7 @@ pub async fn telemetry_thread(
             match lst_answer {
                 Ok(msg) => match msg {
                     LSTMessage::Telem(tm) => {
-                        info!("received lst telem msg: {}", tm);
+                        debug!("received lst telem msg: {}", tm);
                         let mut lst_beacon = lst_beacon.lock().await;
                         lst_beacon.uptime = Some(tm.uptime);
                         lst_beacon.rssi = Some(tm.rssi);
@@ -113,10 +113,10 @@ pub async fn telemetry_thread(
                         lst_beacon.packets_rejected_checksum = Some(tm.packets_rejected_checksum);
                         lst_beacon.packets_rejected_other = Some(tm.packets_rejected_other);
                     }
-                    LSTMessage::Ack => info!("ack"),
-                    LSTMessage::Nack => info!("nack"),
-                    LSTMessage::Unknown(a) => info!("unknown: {}", a),
-                    LSTMessage::Relay(_) => info!("relay"),
+                    LSTMessage::Ack => debug!("ack"),
+                    LSTMessage::Nack => debug!("nack"),
+                    LSTMessage::Unknown(a) => debug!("unknown: {}", a),
+                    LSTMessage::Relay(_) => debug!("relay"),
                 },
                 Err(e) => {
                     error!("could not receive from lst: {}", e);

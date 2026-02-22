@@ -636,7 +636,7 @@ dependencies = [
 [[package]]
 name = "openlst-driver"
 version = "1.0.0"
-source = "git+ssh://git@github.com/S2outh/rocketlst-software.git#3a7db5653865a90d135db4c135249ac35aae4274"
+source = "git+ssh://git@github.com/S2outh/rocketlst-software.git#07f2ac4116a45da3044eacc9c20ed6ac5a4a15c1"
 dependencies = [
  "defmt 1.0.1",
  "embedded-io-async 0.7.0",
