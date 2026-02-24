@@ -15,6 +15,8 @@ use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::{Channel, D
 use embassy_time::{Duration, Instant, Ticker, Timer};
 use openlst_driver::{lst_receiver::{LSTMessage, LSTReceiver, LSTTelemetry}, lst_sender::{LSTCmd, LSTSender}};
 use static_cell::StaticCell;
+use crate::nats::Nats;
+
 use {defmt_rtt as _, panic_probe as _};
 
 use south_common::{
@@ -297,10 +299,10 @@ async fn main(spawner: Spawner) {
 
     info!("Network initialized");
 
-    // Initizlize 
+    // Initizlize Nats client
     let state: TcpClientState<1, 1024, 1024> = TcpClientState::new();
     let client = TcpClient::new(stack, &state);
-
+    let nats = Nats::new(client);
 
     // Initialize beacons
     let mut lst_beacon = LSTBeacon::new();

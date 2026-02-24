@@ -1,7 +1,11 @@
-use embassy_net::tcp::client::TcpClient;
+use embedded_nal_async::TcpConnect;
 
-
-struct Nats {
-    client: TcpClient<'static, 1>,
+pub struct Nats<CON: TcpConnect> {
+    client: CON,
 }
 
+impl<CON: TcpConnect> Nats<CON> {
+    pub fn new(client: CON) -> Self {
+        Self { client }
+    }
+}
