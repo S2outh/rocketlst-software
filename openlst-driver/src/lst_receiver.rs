@@ -86,8 +86,7 @@ impl<S: Read> LSTReceiver<S> {
             },
         )
     }
-    pub async fn receive(&mut self) -> Result<LSTMessage<'_>, ReceiverError<S::Error>> {
-        // finding framing bytes
+    async fn sync_frame(&mut self) -> Result<(), ReceiverError<S::Error>> {
         let mut magic_pos = 0;
         loop {
             let mut byte: u8 = 0;
@@ -98,12 +97,16 @@ impl<S: Read> LSTReceiver<S> {
             if byte == MAGIC[magic_pos] {
                 magic_pos += 1;
                 if magic_pos == MAGIC.len() {
-                    break;
+                    return Ok(());
                 }
             } else {
                 magic_pos = 0;
             }
         }
+    }
+    pub async fn receive(&mut self) -> Result<LSTMessage<'_>, ReceiverError<S::Error>> {
+        // finding framing bytes
+        self.sync_frame().await?;
 
         // read length
         let mut len: u8 = 0;

@@ -1,21 +1,25 @@
 #![no_std]
 #![no_main]
 
+#![feature(const_trait_impl)]
+#![feature(const_cmp)]
+
 mod macros;
 mod ground_tm_defs;
 mod nats;
 
-use core::convert::Infallible;
+use core::{convert::Infallible, net::SocketAddr};
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_net::{StackResources, tcp::client::{TcpClient, TcpClientState}};
+use embassy_net::{Stack, StackResources, dns::DnsQueryType, tcp::{self, client::{TcpClient, TcpClientState}}};
 use embassy_stm32::{Config, bind_interrupts, eth::{self, Ethernet, GenericPhy, PacketQueue, Sma}, mode::Async, peripherals::{ETH, ETH_SMA, IWDG1, RNG, USART3}, rcc, rng::{self, Rng}, time::mhz, usart::{self, Uart, UartTx}, wdg::IndependentWatchdog};
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::{Channel, DynamicReceiver, DynamicSender}};
 use embassy_time::{Duration, Instant, Ticker, Timer};
 use openlst_driver::{lst_receiver::{LSTMessage, LSTReceiver, LSTTelemetry}, lst_sender::{LSTCmd, LSTSender}};
 use static_cell::StaticCell;
-use crate::nats::Nats;
+
+use crate::nats::NatsStack;
 
 use {defmt_rtt as _, panic_probe as _};
 
@@ -59,9 +63,14 @@ static RESOURCES: StaticCell<StackResources<2>> = StaticCell::new();
 // buffer sizes for tcp data before and after processing
 const TCP_RX_BUF_SIZE: usize = 1024;
 const TCP_TX_BUF_SIZE: usize = 1024;
+// tcp client state for max one client
+static TCP_CLIENT_STATE: StaticCell<TcpClientState<1, TCP_TX_BUF_SIZE, TCP_RX_BUF_SIZE>> = StaticCell::new();
 
 // mac address. hardcoded for now
 const MAC_ADDR: [u8; 6] = [0x00, 0x00, 0xDE, 0xAD, 0xBE, 0xEF];
+
+// NATS
+const NATS_ADDR: &str = "nats://nats.tychigames.de";
 
 type EthDevice = Ethernet<'static, ETH, GenericPhy<Sma<'static, ETH_SMA>>>;
 
@@ -81,7 +90,7 @@ bind_interrupts!(struct Irqs {
 
 #[derive(Debug)]
 pub enum GSTError {
-    ConnectNATS,
+    ConnectNATS(tcp::Error),
     SubscribeNATS,
     SerialError(usart::Error),
 }
@@ -153,24 +162,23 @@ async fn petter(mut watchdog: IndependentWatchdog<'static, IWDG1>) {
 }
 
 #[embassy_executor::task]
-async fn nats_thread(mut receiver: DynamicReceiver<'static, SerializedInfo>) {
+async fn nats_thread(nats: NatsStack<TcpClient<'static, 1, TCP_TX_BUF_SIZE, TCP_RX_BUF_SIZE>>, receiver: DynamicReceiver<'static, SerializedInfo>) {
     loop {
-        let nats_client = loop {
-            match async_nats::ConnectOptions::with_user_and_password(config.nats_user.clone(), config.nats_pwd.clone())
-                .connect(config.nats_address.clone())
-                .await.map_err(|e| GSTError::ConnectNATS(e.kind())) {
+        let mut nats_client = loop {
+            match nats.connect_with_default()
+                .await.map_err(GSTError::ConnectNATS) {
 
                 Ok(client) => {
-                    info!("NATS succesfully connected to NATS server on {} with user {}", config.nats_address, config.nats_user);
+                    info!("NATS succesfully connected to NATS server");
                     break client;
                 },
-                Err(e) => error!("Could not connect to NATS server: {:?}, retrying in 3s", e),
+                Err(e) => error!("Could not connect to NATS server: {}, retrying in 3s", Debug2Format(&e)),
             }
-            time::sleep(Duration::from_secs(3)).await;
+            Timer::after(Duration::from_secs(3)).await;
         };
         loop {
-            let (address, bytes) = receiver.recv().await.unwrap();
-            if let Err(e) = nats_client.publish(address, bytes.into()).await {
+            let (address, bytes) = receiver.receive().await;
+            if let Err(e) = nats_client.publish(address, bytes).await {
                 error!("lost connection to NATS server: {:?}", e);
                 break;
             }
@@ -213,6 +221,18 @@ async fn local_lst_telemetry(nats_sender: &DynamicSender<'static, SerializedInfo
         PacketsRejectedChecksum,
         PacketsRejectedOther
     ));
+}
+pub async fn parse_or_resolve(
+       stack: &Stack<'_>,
+       s: &str,
+   ) -> Result<SocketAddr, embassy_net::dns::Error> {
+   if let Ok(sa) = s.parse::<SocketAddr>() {
+       return Ok(sa);
+   }
+
+   let ips = stack.dns_query(s, DnsQueryType::A).await?;
+   let ip = ips.first().expect("dns_query returned no results");
+   Ok(SocketAddr::new((*ip).into(), 80))
 }
 
 #[embassy_executor::main]
@@ -300,9 +320,12 @@ async fn main(spawner: Spawner) {
     info!("Network initialized");
 
     // Initizlize Nats client
-    let state: TcpClientState<1, 1024, 1024> = TcpClientState::new();
-    let client = TcpClient::new(stack, &state);
-    let nats = Nats::new(client);
+    let client = TcpClient::new(stack, TCP_CLIENT_STATE.init(TcpClientState::new()));
+
+    // resolve addr
+    let socket_addr = parse_or_resolve(&stack, NATS_ADDR)
+        .await.expect("could not resolve nats addr");
+    let nats = NatsStack::new(client, socket_addr);
 
     // Initialize beacons
     let mut lst_beacon = LSTBeacon::new();
@@ -316,7 +339,7 @@ async fn main(spawner: Spawner) {
     // launch local lst periodic telemetry request
     spawner.must_spawn(telemetry_request_thread(lst_tx));
     // launch nats sending thread
-    spawner.must_spawn(nats_thread(channel.dyn_receiver()));
+    spawner.must_spawn(nats_thread(nats, channel.dyn_receiver()));
 
     // receiving main loop
     loop {
@@ -327,7 +350,7 @@ async fn main(spawner: Spawner) {
                         parse_beacon!(data, lst_beacon, channel, (packets_sent));
                         parse_beacon!(data, eps_beacon, channel, (bat1_voltage));
                         parse_beacon!(data, high_rate_upper_beacon, channel);
-                        parse_beacon!(data, low_rate_upper_beacon, channel, (gps_pos));
+                        parse_beacon!(data, low_rate_upper_beacon, channel, (gps_ecef));
                         parse_beacon!(data, lower_sensor_beacon, channel);
                     },
                     LSTMessage::Telem(tm) => {
