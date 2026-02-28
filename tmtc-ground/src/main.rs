@@ -3,6 +3,7 @@
 
 #![feature(const_trait_impl)]
 #![feature(const_cmp)]
+#![feature(never_type)]
 
 mod macros;
 mod ground_tm_defs;
@@ -19,7 +20,7 @@ use embassy_time::{Duration, Instant, Ticker, Timer};
 use openlst_driver::{lst_receiver::{LSTMessage, LSTReceiver, LSTTelemetry}, lst_sender::{LSTCmd, LSTSender}};
 use static_cell::StaticCell;
 
-use crate::nats::NatsStack;
+use crate::nats::{NatsCon, NatsRunner, NatsStack};
 
 use {defmt_rtt as _, panic_probe as _};
 
@@ -71,13 +72,10 @@ const MAC_ADDR: [u8; 6] = [0x00, 0x00, 0xDE, 0xAD, 0xBE, 0xEF];
 
 // NATS
 const NATS_ADDR: &str = "nats://nats.tychigames.de";
+static NATS_STACK: StaticCell<NatsStack<'static, Client<'static>>> = StaticCell::new();
 
 type EthDevice = Ethernet<'static, ETH, GenericPhy<Sma<'static, ETH_SMA>>>;
-
-#[embassy_executor::task]
-async fn net_task(mut runner: embassy_net::Runner<'static, EthDevice>) -> ! {
-    runner.run().await
-}
+type Client<'a> = TcpClient<'a, 1, TCP_TX_BUF_SIZE, TCP_RX_BUF_SIZE>;
 
 // bin can interrupts
 bind_interrupts!(struct Irqs {
@@ -162,26 +160,22 @@ async fn petter(mut watchdog: IndependentWatchdog<'static, IWDG1>) {
 }
 
 #[embassy_executor::task]
-async fn nats_thread(nats: NatsStack<TcpClient<'static, 1, TCP_TX_BUF_SIZE, TCP_RX_BUF_SIZE>>, receiver: DynamicReceiver<'static, SerializedInfo>) {
-    loop {
-        let mut nats_client = loop {
-            match nats.connect_with_default()
-                .await.map_err(GSTError::ConnectNATS) {
+async fn net_task(mut runner: embassy_net::Runner<'static, EthDevice>) -> ! {
+    runner.run().await
+}
 
-                Ok(client) => {
-                    info!("NATS succesfully connected to NATS server");
-                    break client;
-                },
-                Err(e) => error!("Could not connect to NATS server: {}, retrying in 3s", Debug2Format(&e)),
-            }
-            Timer::after(Duration::from_secs(3)).await;
-        };
-        loop {
-            let (address, bytes) = receiver.receive().await;
-            if let Err(e) = nats_client.publish(address, bytes).await {
-                error!("lost connection to NATS server: {:?}", e);
-                break;
-            }
+#[embassy_executor::task]
+async fn nats_task(mut runner: NatsRunner<'static, Client<'static>>) -> ! {
+    runner.run().await
+}
+
+#[embassy_executor::task]
+async fn sender_task(mut nats_client: NatsCon<'static, Client<'static>>, receiver: DynamicReceiver<'static, SerializedInfo>) {
+    loop {
+        let (address, bytes) = receiver.receive().await;
+        if let Err(e) = nats_client.publish(address, bytes).await {
+            error!("lost connection to NATS server: {:?}", e);
+            break;
         }
     }
 }
@@ -325,7 +319,17 @@ async fn main(spawner: Spawner) {
     // resolve addr
     let socket_addr = parse_or_resolve(&stack, NATS_ADDR)
         .await.expect("could not resolve nats addr");
-    let nats = NatsStack::new(client, socket_addr);
+    let nats = NATS_STACK.init(NatsStack::new(client, socket_addr));
+
+    // nats connection
+    let (nats_client, nats_runner) = match nats.connect_with_default()
+        .await.map_err(GSTError::ConnectNATS) {
+        Ok(nats_stack) => {
+            info!("NATS succesfully connected to NATS server");
+            nats_stack
+        },
+        Err(e) => defmt::panic!("Could not connect to NATS server: {}, retrying in 3s", Debug2Format(&e)),
+    };
 
     // Initialize beacons
     let mut lst_beacon = LSTBeacon::new();
@@ -339,7 +343,8 @@ async fn main(spawner: Spawner) {
     // launch local lst periodic telemetry request
     spawner.must_spawn(telemetry_request_thread(lst_tx));
     // launch nats sending thread
-    spawner.must_spawn(nats_thread(nats, channel.dyn_receiver()));
+    spawner.must_spawn(sender_task(nats_client, channel.dyn_receiver()));
+    spawner.must_spawn(nats_task(nats_runner));
 
     // receiving main loop
     loop {

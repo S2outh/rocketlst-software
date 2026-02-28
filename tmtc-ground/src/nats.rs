@@ -2,6 +2,7 @@ use core::net::SocketAddr;
 
 use alloc::{format, string::String, vec::Vec};
 use defmt::{error, info, warn};
+use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, mutex::Mutex};
 use embedded_io_async::{Read, ReadExactError, Write};
 use embedded_nal_async::TcpConnect;
 
@@ -46,25 +47,49 @@ impl NatsConnectMsg {
     }
 }
 
-pub struct NatsStack<C: TcpConnect> {
+pub struct NatsStack<'d, C: 'd + TcpConnect> {
     client: C,
+    raw_con: Option<Mutex<ThreadModeRawMutex, <C as TcpConnect>::Connection<'d>>>,
     address: SocketAddr,
 }
 
-impl<C: TcpConnect> NatsStack<C> {
+impl<'d, C: TcpConnect> NatsStack<'d, C> {
     pub fn new(client: C, address: SocketAddr) -> Self {
-        Self { client, address }
+        Self { client, address, raw_con: None }
     }
-    pub async fn connect_with_default(&self) -> Result<NatsCon<C>, C::Error> {
-        let con = NatsCon::new(self.client.connect(self.address).await?);
+    pub async fn connect_with_default(&'d mut self) -> Result<(NatsCon<'d, C>, NatsRunner<'d, C>), C::Error> {
+        self.raw_con = Some(Mutex::new(self.client.connect(self.address).await?));
+        let nats_con = NatsCon::new(&self.raw_con.as_ref().unwrap());
+        let runner = NatsRunner::new(&self.raw_con.as_ref().unwrap());
         
-        Ok(con)
+        Ok((nats_con, runner))
+    }
+}
+pub struct NatsCon<'d, C: 'd + TcpConnect> {
+    con: &'d Mutex<ThreadModeRawMutex, C::Connection<'d>>,
+}
+impl<'d, C: 'd + TcpConnect> NatsCon<'d, C> {
+    fn new(con: &'d Mutex<ThreadModeRawMutex, C::Connection<'d>>) -> Self {
+        Self { con }
+    }
+
+    pub async fn publish(&mut self, address: &str, bytes: Vec<u8>) -> Result<(), NatsError<C>> {
+        let str_header = format!("PUB {} {}\r\n", address, bytes.len());
+        let header = str_header.as_bytes();
+        let end = b"\r\n";
+
+        let mut packet = Vec::with_capacity(header.len() + bytes.len() + end.len());
+        packet.extend_from_slice(header);
+        packet.extend_from_slice(&bytes);
+        packet.extend_from_slice(end);
+
+        self.con.lock().await.write_all(&packet).await
+            .map_err(|e| NatsError::IOError(e.into()))
     }
 }
 
-pub struct NatsCon<'d, C: 'd + TcpConnect> {
-    con: C::Connection<'d>,
-    connected: bool,
+pub struct NatsRunner<'d, C: 'd + TcpConnect> {
+    con: &'d Mutex<ThreadModeRawMutex, C::Connection<'d>>,
     user: &'static str,
     pwd: &'static str,
 }
@@ -75,29 +100,23 @@ pub enum NatsError<C: TcpConnect> {
     ParsingErr,
 }
 
-pub struct NatsRelayMsg {
-
-}
-pub enum NatsMsg {
-    Info(NatsInfoMsg),
-    Relay(String),
-}
-impl<'d, C: 'd + TcpConnect> NatsCon<'d, C> {
-    fn new(con: C::Connection<'d>) -> Self {
-        NatsCon {
+impl<'d, C: 'd + TcpConnect> NatsRunner<'d, C> {
+    fn new(con: &'d Mutex<ThreadModeRawMutex, C::Connection<'d>>) -> Self {
+        Self {
             con,
-            connected: false,
             user: "nats",
             pwd: "nats"
         }
     }
-    async fn sync_frame(&mut self) -> Result<String, ReadExactError<C::Error>> {
-        let mut buf = String::new();
+    async fn sync_frame(&mut self) -> Result<Vec<u8>, ReadExactError<C::Error>> {
+        let mut buf: Vec<u8> = Vec::new();
         let mut magic_pos = 0;
         loop {
             let mut byte: u8 = 0;
             self.con
-                .read_exact(core::slice::from_mut(&mut byte))
+                .lock()
+                .await
+                .read(core::slice::from_mut(&mut byte))
                 .await?;
             if byte == CARR_RETURN[magic_pos] {
                 magic_pos += 1;
@@ -106,17 +125,18 @@ impl<'d, C: 'd + TcpConnect> NatsCon<'d, C> {
                 }
             } else {
                 magic_pos = 0;
-                buf.push(byte.into());
+                buf.push(byte);
             }
         }
     }
-    async fn process_next(&mut self) -> Result<(), NatsError<C>> {
+    async fn poll_next(&mut self) -> Result<(), NatsError<C>> {
         let packet = self.sync_frame().await
                     .map_err(NatsError::IOError)?;
-        let (cmd, msg) = packet.split_once(' ').unwrap_or((&packet.trim(), ""));
+        let packet_str = String::from_utf8(packet).unwrap();
+        let (cmd, msg) = packet_str.split_once(' ').unwrap_or((&packet_str.trim(), ""));
         match cmd {
             "PING" => {
-                self.con.write_all("PONG\r\n".as_bytes()).await
+                self.con.lock().await.write_all("PONG\r\n".as_bytes()).await
                     .map_err(|e| NatsError::IOError(e.into()))?;
             }
             "INFO" => {
@@ -127,7 +147,7 @@ impl<'d, C: 'd + TcpConnect> NatsCon<'d, C> {
                         serde_json::to_string(&NatsConnectMsg::new(&self.user, &self.pwd))
                             .unwrap()
                     );
-                    self.con.write_all(answer.as_bytes()).await
+                    self.con.lock().await.write_all(answer.as_bytes()).await
                         .map_err(|e| NatsError::IOError(e.into()))?;
                 } else {
                     warn!("could not decode nats info")
@@ -138,15 +158,16 @@ impl<'d, C: 'd + TcpConnect> NatsCon<'d, C> {
                 return Err(NatsError::NatsErr);
             }
             "MSG" => {
-                let Some((_topic, msg)) = msg.split_once(' ') else {
+                let Some((topic, msg)) = msg.split_once(' ') else {
                     return Err(NatsError::ParsingErr);
                 };
                 let Some((sid, _bytes)) = msg.split_once(' ') else {
                     return Err(NatsError::ParsingErr);
                 };
-                let Ok(_sid) = sid.parse::<i32>() else {
+                let Ok(sid) = sid.parse::<i32>() else {
                     return Err(NatsError::ParsingErr);
                 };
+                info!("A message :) {}, {}", topic, sid);
                 //let mut msg = String::new();
                 //let Ok(_) = reader.read_line(&mut msg) else {
                 //    return Err(NatsReadError::ParsingErr);
@@ -160,12 +181,14 @@ impl<'d, C: 'd + TcpConnect> NatsCon<'d, C> {
                 warn!("unknown nats cmd {}", default);
             }
         }
+
         Ok(())
     }
-    pub async fn publish(&mut self, address: &str, data: Vec<u8>) -> Result<(), NatsError<C>> {
-        let msg = String::from_utf8(data).map_err(|_| NatsError::ParsingErr)?;
-        self.con.write_all(format!("PUB {} {}\r\n{}\r\n", address, msg.len(), msg).as_bytes()).await
-            .map_err(|e| NatsError::IOError(e.into()))?;
-        Ok(())
+    pub async fn run(&mut self) -> ! {
+        loop {
+            if let Err(_) = self.poll_next().await {
+                panic!("nats crashed");
+            }
+        }
     }
 }
