@@ -184,10 +184,11 @@ impl<'d, C: 'd + TcpConnect> NatsRunner<'d, C> {
 
         Ok(())
     }
-    pub async fn run(&mut self) -> ! {
+    pub async fn run(&mut self) -> Result<!, ()> {
         loop {
             if let Err(_) = self.poll_next().await {
-                panic!("nats crashed");
+                error!("nats crashed");
+                return Err(());
             }
         }
     }

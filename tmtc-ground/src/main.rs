@@ -11,6 +11,8 @@ mod nats;
 
 use core::{convert::Infallible, net::SocketAddr};
 
+use cortex_m::peripheral::SCB;
+
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_net::{Stack, StackResources, dns::DnsQueryType, tcp::{self, client::{TcpClient, TcpClientState}}};
@@ -28,6 +30,7 @@ use south_common::{
     beacons::{LSTBeacon, EPSBeacon, HighRateUpperSensorBeacon, LowRateUpperSensorBeacon, LowerSensorBeacon},
     tmtc_system::{Beacon, ParseError, ground_tm::{Serializer, SerializableTMValue}}
 };
+
 
 // General setup stuff
 const WATCHDOG_TIMEOUT_US: u32 = 300_000;
@@ -59,8 +62,8 @@ static S_RX_BUF: StaticCell<[u8; S_RX_BUF_SIZE]> = StaticCell::new();
 // Ethernet
 // queues for raw packets before and after processing
 static PACKETS: StaticCell<PacketQueue<4, 4>> = StaticCell::new();
-// resources to hold the sockets used by the net driver
-static RESOURCES: StaticCell<StackResources<2>> = StaticCell::new();
+// resources to hold the sockets used by the net driver. One for DHCP, one for DNS and one for TCP
+static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
 // buffer sizes for tcp data before and after processing
 const TCP_RX_BUF_SIZE: usize = 1024;
 const TCP_TX_BUF_SIZE: usize = 1024;
@@ -71,7 +74,7 @@ static TCP_CLIENT_STATE: StaticCell<TcpClientState<1, TCP_TX_BUF_SIZE, TCP_RX_BU
 const MAC_ADDR: [u8; 6] = [0x00, 0x00, 0xDE, 0xAD, 0xBE, 0xEF];
 
 // NATS
-const NATS_ADDR: &str = "nats://nats.tychigames.de";
+const NATS_ADDR: &str = "10.42.0.1";
 static NATS_STACK: StaticCell<NatsStack<'static, Client<'static>>> = StaticCell::new();
 
 type EthDevice = Ethernet<'static, ETH, GenericPhy<Sma<'static, ETH_SMA>>>;
@@ -166,7 +169,7 @@ async fn net_task(mut runner: embassy_net::Runner<'static, EthDevice>) -> ! {
 
 #[embassy_executor::task]
 async fn nats_task(mut runner: NatsRunner<'static, Client<'static>>) -> ! {
-    runner.run().await
+    runner.run().await.unwrap_or_else(|_| SCB::sys_reset())
 }
 
 #[embassy_executor::task]
@@ -175,8 +178,9 @@ async fn sender_task(mut nats_client: NatsCon<'static, Client<'static>>, receive
         let (address, bytes) = receiver.receive().await;
         if let Err(e) = nats_client.publish(address, bytes).await {
             error!("lost connection to NATS server: {:?}", e);
-            break;
+            SCB::sys_reset();
         }
+        info!("published :?");
     }
 }
 
@@ -226,7 +230,7 @@ pub async fn parse_or_resolve(
 
    let ips = stack.dns_query(s, DnsQueryType::A).await?;
    let ip = ips.first().expect("dns_query returned no results");
-   Ok(SocketAddr::new((*ip).into(), 80))
+   Ok(SocketAddr::new((*ip).into(), 4222))
 }
 
 #[embassy_executor::main]
@@ -310,6 +314,10 @@ async fn main(spawner: Spawner) {
 
     // Ensure DHCP configuration is up before trying connect
     stack.wait_config_up().await;
+
+    info!("Stack initialized");
+
+    stack.wait_link_up().await;
 
     info!("Network initialized");
 
