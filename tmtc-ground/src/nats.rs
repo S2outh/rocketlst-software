@@ -2,9 +2,10 @@ use core::net::SocketAddr;
 
 use alloc::{format, string::String, vec::Vec};
 use defmt::{error, info, warn};
+use embassy_futures::yield_now;
+use embassy_net::tcp::{self, TcpSocket};
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, mutex::Mutex};
-use embedded_io_async::{Read, ReadExactError, Write};
-use embedded_nal_async::TcpConnect;
+use embedded_io_async::{Write};
 
 const CARR_RETURN: [u8; 2] = *b"\r\n";
 
@@ -47,33 +48,32 @@ impl NatsConnectMsg {
     }
 }
 
-pub struct NatsStack<'d, C: 'd + TcpConnect> {
-    client: C,
-    raw_con: Option<Mutex<ThreadModeRawMutex, <C as TcpConnect>::Connection<'d>>>,
+pub struct NatsStack<'d> {
+    socket: Mutex<ThreadModeRawMutex, TcpSocket<'d>>,
     address: SocketAddr,
 }
 
-impl<'d, C: TcpConnect> NatsStack<'d, C> {
-    pub fn new(client: C, address: SocketAddr) -> Self {
-        Self { client, address, raw_con: None }
+impl<'d> NatsStack<'d> {
+    pub fn new(socket: TcpSocket<'d>, address: SocketAddr) -> Self {
+        Self { socket: Mutex::new(socket), address }
     }
-    pub async fn connect_with_default(&'d mut self) -> Result<(NatsCon<'d, C>, NatsRunner<'d, C>), C::Error> {
-        self.raw_con = Some(Mutex::new(self.client.connect(self.address).await?));
-        let nats_con = NatsCon::new(&self.raw_con.as_ref().unwrap());
-        let runner = NatsRunner::new(&self.raw_con.as_ref().unwrap());
+    pub async fn connect_with_default(&'d mut self) -> Result<(NatsCon<'d>, NatsRunner<'d>), tcp::ConnectError> {
+        self.socket.lock().await.connect(self.address).await?;
+        let nats_con = NatsCon::new(&self.socket);
+        let runner = NatsRunner::new(&self.socket);
         
         Ok((nats_con, runner))
     }
 }
-pub struct NatsCon<'d, C: 'd + TcpConnect> {
-    con: &'d Mutex<ThreadModeRawMutex, C::Connection<'d>>,
+pub struct NatsCon<'d> {
+    con: &'d Mutex<ThreadModeRawMutex, TcpSocket<'d>>,
 }
-impl<'d, C: 'd + TcpConnect> NatsCon<'d, C> {
-    fn new(con: &'d Mutex<ThreadModeRawMutex, C::Connection<'d>>) -> Self {
+impl<'d> NatsCon<'d> {
+    fn new(con: &'d Mutex<ThreadModeRawMutex, TcpSocket<'d>>) -> Self {
         Self { con }
     }
 
-    pub async fn publish(&mut self, address: &str, bytes: Vec<u8>) -> Result<(), NatsError<C>> {
+    pub async fn publish(&mut self, address: &str, bytes: Vec<u8>) -> Result<(), NatsError> {
         let str_header = format!("PUB {} {}\r\n", address, bytes.len());
         let header = str_header.as_bytes();
         let end = b"\r\n";
@@ -88,30 +88,36 @@ impl<'d, C: 'd + TcpConnect> NatsCon<'d, C> {
     }
 }
 
-pub struct NatsRunner<'d, C: 'd + TcpConnect> {
-    con: &'d Mutex<ThreadModeRawMutex, C::Connection<'d>>,
+pub struct NatsRunner<'d> {
+    con: &'d Mutex<ThreadModeRawMutex, TcpSocket<'d>>,
     user: &'static str,
     pwd: &'static str,
 }
 #[derive(defmt::Format)]
-pub enum NatsError<C: TcpConnect> {
-    IOError(ReadExactError<C::Error>),
+pub enum NatsError {
+    IOError(tcp::Error),
     NatsErr,
     ParsingErr,
 }
 
-impl<'d, C: 'd + TcpConnect> NatsRunner<'d, C> {
-    fn new(con: &'d Mutex<ThreadModeRawMutex, C::Connection<'d>>) -> Self {
+impl<'d> NatsRunner<'d> {
+    fn new(con: &'d Mutex<ThreadModeRawMutex, TcpSocket<'d>>) -> Self {
         Self {
             con,
             user: "nats",
             pwd: "nats"
         }
     }
-    async fn sync_frame(&mut self) -> Result<Vec<u8>, ReadExactError<C::Error>> {
+    async fn sync_frame(&mut self) -> Result<Vec<u8>, tcp::Error> {
         let mut buf: Vec<u8> = Vec::new();
         let mut magic_pos = 0;
         loop {
+            // yield if no new bytes are available
+            if !self.con.lock().await.can_recv() {
+                yield_now().await;
+                continue;
+            }
+            // read next byte into buffer
             let mut byte: u8 = 0;
             self.con
                 .lock()
@@ -129,7 +135,7 @@ impl<'d, C: 'd + TcpConnect> NatsRunner<'d, C> {
             }
         }
     }
-    async fn poll_next(&mut self) -> Result<(), NatsError<C>> {
+    async fn poll_next(&mut self) -> Result<(), NatsError> {
         let packet = self.sync_frame().await
                     .map_err(NatsError::IOError)?;
         let packet_str = String::from_utf8(packet).unwrap();

@@ -15,7 +15,7 @@ use cortex_m::peripheral::SCB;
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_net::{Stack, StackResources, dns::DnsQueryType, tcp::{self, client::{TcpClient, TcpClientState}}};
+use embassy_net::{Stack, StackResources, dns::DnsQueryType, tcp::{self, TcpSocket}};
 use embassy_stm32::{Config, bind_interrupts, eth::{self, Ethernet, GenericPhy, PacketQueue, Sma}, mode::Async, peripherals::{ETH, ETH_SMA, IWDG1, RNG, USART3}, rcc, rng::{self, Rng}, time::mhz, usart::{self, Uart, UartTx}, wdg::IndependentWatchdog};
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::{Channel, DynamicReceiver, DynamicSender}};
 use embassy_time::{Duration, Instant, Ticker, Timer};
@@ -66,19 +66,19 @@ static PACKETS: StaticCell<PacketQueue<4, 4>> = StaticCell::new();
 static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
 // buffer sizes for tcp data before and after processing
 const TCP_RX_BUF_SIZE: usize = 1024;
+static TCP_RX_BUF: StaticCell<[u8; TCP_RX_BUF_SIZE]> = StaticCell::new();
+
 const TCP_TX_BUF_SIZE: usize = 1024;
-// tcp client state for max one client
-static TCP_CLIENT_STATE: StaticCell<TcpClientState<1, TCP_TX_BUF_SIZE, TCP_RX_BUF_SIZE>> = StaticCell::new();
+static TCP_TX_BUF: StaticCell<[u8; TCP_TX_BUF_SIZE]> = StaticCell::new();
 
 // mac address. hardcoded for now
 const MAC_ADDR: [u8; 6] = [0x00, 0x00, 0xDE, 0xAD, 0xBE, 0xEF];
 
 // NATS
 const NATS_ADDR: &str = "10.42.0.1";
-static NATS_STACK: StaticCell<NatsStack<'static, Client<'static>>> = StaticCell::new();
+static NATS_STACK: StaticCell<NatsStack<'static>> = StaticCell::new();
 
 type EthDevice = Ethernet<'static, ETH, GenericPhy<Sma<'static, ETH_SMA>>>;
-type Client<'a> = TcpClient<'a, 1, TCP_TX_BUF_SIZE, TCP_RX_BUF_SIZE>;
 
 // bin can interrupts
 bind_interrupts!(struct Irqs {
@@ -91,7 +91,7 @@ bind_interrupts!(struct Irqs {
 
 #[derive(Debug)]
 pub enum GSTError {
-    ConnectNATS(tcp::Error),
+    ConnectNATS(tcp::ConnectError),
     SubscribeNATS,
     SerialError(usart::Error),
 }
@@ -168,19 +168,18 @@ async fn net_task(mut runner: embassy_net::Runner<'static, EthDevice>) -> ! {
 }
 
 #[embassy_executor::task]
-async fn nats_task(mut runner: NatsRunner<'static, Client<'static>>) -> ! {
+async fn nats_task(mut runner: NatsRunner<'static>) -> ! {
     runner.run().await.unwrap_or_else(|_| SCB::sys_reset())
 }
 
 #[embassy_executor::task]
-async fn sender_task(mut nats_client: NatsCon<'static, Client<'static>>, receiver: DynamicReceiver<'static, SerializedInfo>) {
+async fn sender_task(mut nats_client: NatsCon<'static>, receiver: DynamicReceiver<'static, SerializedInfo>) {
     loop {
         let (address, bytes) = receiver.receive().await;
         if let Err(e) = nats_client.publish(address, bytes).await {
             error!("lost connection to NATS server: {:?}", e);
             SCB::sys_reset();
         }
-        info!("published :?");
     }
 }
 
@@ -321,8 +320,8 @@ async fn main(spawner: Spawner) {
 
     info!("Network initialized");
 
-    // Initizlize Nats client
-    let client = TcpClient::new(stack, TCP_CLIENT_STATE.init(TcpClientState::new()));
+    // Initizlize Nats socket
+    let client = TcpSocket::new(stack, TCP_RX_BUF.init([0; _]), TCP_TX_BUF.init([0; _]));
 
     // resolve addr
     let socket_addr = parse_or_resolve(&stack, NATS_ADDR)
