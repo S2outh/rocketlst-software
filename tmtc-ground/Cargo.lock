@@ -676,9 +676,9 @@ checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 
 [[package]]
 name = "minicbor"
-version = "2.2.0"
+version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22b95c464ffa47c47d1a101546b1b5170dac5ffe72c1aab5ff13a63f69c94d76"
+checksum = "e70eae6d4f18f7d76877fe7b13f0bc21f7c2b7239d2041c338335f7b388d0dd7"
 
 [[package]]
 name = "minicbor-serde"
@@ -742,9 +742,9 @@ checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 
 [[package]]
 name = "pin-project-lite"
-version = "0.2.16"
+version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3b3cff922bd51709b605d9ead9aa71031d81447142d828eb4a6eba76fe619f9b"
+checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 
 [[package]]
 name = "portable-atomic"
@@ -894,7 +894,7 @@ dependencies = [
 [[package]]
 name = "south-common"
 version = "3.0.0"
-source = "git+https://github.com/S2outh/south-common.git#4c329a740dd9c9aa64d9c66141f566122eee9fbc"
+source = "git+https://github.com/S2outh/south-common.git#705ce8b2195ef203bb3f1b21aa2239e529c15e02"
 dependencies = [
  "bitflags 2.11.0",
  "libm",
@@ -1026,8 +1026,8 @@ dependencies = [
 
 [[package]]
 name = "tmtc-system"
-version = "4.5.0"
-source = "git+https://github.com/S2outh/telemetry-system.git#fb80963b28bc1d38d453026256c6667fde6c276f"
+version = "4.6.0"
+source = "git+https://github.com/S2outh/telemetry-system.git#85159058f22cf3f2d867ab095fc2e41c8ae86594"
 dependencies = [
  "serde",
  "tmtc-system-macros",
@@ -1036,7 +1036,7 @@ dependencies = [
 [[package]]
 name = "tmtc-system-macros"
 version = "0.1.0"
-source = "git+https://github.com/S2outh/telemetry-system.git#fb80963b28bc1d38d453026256c6667fde6c276f"
+source = "git+https://github.com/S2outh/telemetry-system.git#85159058f22cf3f2d867ab095fc2e41c8ae86594"
 dependencies = [
  "heck",
  "proc-macro2",
