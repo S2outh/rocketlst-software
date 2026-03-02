@@ -15,7 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 include radios/rocketlst_air/Board.mk
-include radios/openlst_437/Board.mk
+include radios/rocketlst_ground/Board.mk
 include open-lst/Build.mk
 
 .PHONY: clean
