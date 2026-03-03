@@ -75,7 +75,8 @@ static TCP_TX_BUF: StaticCell<[u8; TCP_TX_BUF_SIZE]> = StaticCell::new();
 const MAC_ADDR: [u8; 6] = [0x00, 0x00, 0xDE, 0xAD, 0xBE, 0xEF];
 
 // NATS
-const NATS_ADDR: &str = "10.42.0.1";
+// const NATS_ADDR: &str = "10.42.0.1";
+const NATS_ADDR: &str = "nats.tichygames.de";
 static NATS_STACK: StaticCell<NatsStack<'static>> = StaticCell::new();
 
 type EthDevice = Ethernet<'static, ETH, GenericPhy<Sma<'static, ETH_SMA>>>;
@@ -228,7 +229,9 @@ pub async fn parse_or_resolve(
    }
 
    let ips = stack.dns_query(s, DnsQueryType::A).await?;
-   let ip = ips.first().expect("dns_query returned no results");
+   let Some(ip) = ips.first() else {
+       return Err(embassy_net::dns::Error::Failed);
+   };
    Ok(SocketAddr::new((*ip).into(), 4222))
 }
 
@@ -311,21 +314,25 @@ async fn main(spawner: Spawner) {
     // Launch network task
     spawner.must_spawn(net_task(runner));
 
-    // Ensure DHCP configuration is up before trying connect
+    stack.wait_link_up().await;
     stack.wait_config_up().await;
 
     info!("Stack initialized");
-
-    stack.wait_link_up().await;
-
     info!("Network initialized");
 
     // Initizlize Nats socket
     let client = TcpSocket::new(stack, TCP_RX_BUF.init([0; _]), TCP_TX_BUF.init([0; _]));
 
     // resolve addr
-    let socket_addr = parse_or_resolve(&stack, NATS_ADDR)
-        .await.expect("could not resolve nats addr");
+    let socket_addr = loop {
+        match parse_or_resolve(&stack, NATS_ADDR).await {
+            Ok(addr) => break addr,
+            Err(e) => {
+                warn!("could not resolve nats addr: {:?}, retrying...", e);
+                Timer::after_secs(2).await;
+            }
+        }
+    };
     let nats = NATS_STACK.init(NatsStack::new(client, socket_addr));
 
     // nats connection
@@ -335,7 +342,7 @@ async fn main(spawner: Spawner) {
             info!("NATS succesfully connected to NATS server");
             nats_stack
         },
-        Err(e) => defmt::panic!("Could not connect to NATS server: {}, retrying in 3s", Debug2Format(&e)),
+        Err(e) => defmt::panic!("Could not connect to NATS server: {}", Debug2Format(&e)),
     };
 
     // Initialize beacons
@@ -374,7 +381,7 @@ async fn main(spawner: Spawner) {
                 }
             },
             Err(e) => {
-                error!("[ERROR] error in receiving frame: {:?}", e);
+                error!("error in receiving frame: {:?}", e);
             }
         }
     }
