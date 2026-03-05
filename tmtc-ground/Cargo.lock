@@ -223,7 +223,7 @@ version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5f1cdcc6ee777565b5b04209526974a213a8f97879bdb314572265db86e3c63f"
 dependencies = [
- "spin",
+ "spin 0.9.8",
 ]
 
 [[package]]
@@ -663,6 +663,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 
 [[package]]
+name = "lsm6dsv32"
+version = "0.1.0"
+source = "git+ssh://git@github.com/S2outh/imu-driver.git#4780d5bfdc17e4ecfb84750feb850d052c1aedd1"
+dependencies = [
+ "defmt 1.0.1",
+]
+
+[[package]]
 name = "managed"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -785,9 +793,9 @@ dependencies = [
 
 [[package]]
 name = "quote"
-version = "1.0.44"
+version = "1.0.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "21b2ebcf727b7760c461f091f9f0f539b77b8e87f2fd88131e7f1b433b3cece4"
+checksum = "41f2619966050689382d2b44f664f4bc593e129785a36d6ee376ddf37259b924"
 dependencies = [
  "proc-macro2",
 ]
@@ -894,11 +902,13 @@ dependencies = [
 [[package]]
 name = "south-common"
 version = "3.0.0"
-source = "git+https://github.com/S2outh/south-common.git#705ce8b2195ef203bb3f1b21aa2239e529c15e02"
+source = "git+https://github.com/S2outh/south-common.git#a98ae02aff13285bdfed8ae5c3f868bf12b25d79"
 dependencies = [
  "bitflags 2.11.0",
  "libm",
+ "lsm6dsv32",
  "serde",
+ "spin 0.10.0",
  "tmtc-system",
 ]
 
@@ -907,6 +917,15 @@ name = "spin"
 version = "0.9.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6980e8d7511241f8acf4aebddbb1ff938df5eebe98691418c4468d0b72a96a67"
+
+[[package]]
+name = "spin"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d5fe4ccb98d9c292d56fec89a5e07da7fc4cf0dc11e156b41793132775d3e591"
+dependencies = [
+ "portable-atomic",
+]
 
 [[package]]
 name = "stable_deref_trait"
@@ -1026,8 +1045,8 @@ dependencies = [
 
 [[package]]
 name = "tmtc-system"
-version = "4.6.0"
-source = "git+https://github.com/S2outh/telemetry-system.git#85159058f22cf3f2d867ab095fc2e41c8ae86594"
+version = "4.6.1"
+source = "git+https://github.com/S2outh/telemetry-system.git#5fa36803b5ff3897239bb244e09fc06613f8b6d8"
 dependencies = [
  "serde",
  "tmtc-system-macros",
@@ -1036,7 +1055,7 @@ dependencies = [
 [[package]]
 name = "tmtc-system-macros"
 version = "0.1.0"
-source = "git+https://github.com/S2outh/telemetry-system.git#85159058f22cf3f2d867ab095fc2e41c8ae86594"
+source = "git+https://github.com/S2outh/telemetry-system.git#5fa36803b5ff3897239bb244e09fc06613f8b6d8"
 dependencies = [
  "heck",
  "proc-macro2",

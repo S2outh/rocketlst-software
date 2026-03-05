@@ -7,7 +7,7 @@ macro_rules! parse_beacon {
                     info!("{} Received at {}", stringify!([<$beacon:snake:upper>]), $beacon.timestamp);
                     $($(
                         if let Some(value) = $beacon.$field {
-                            info!("Telemetry: {}: {:#?}", stringify!($field), value);
+                            info!("Telemetry: {}: {:#?}", stringify!($field), defmt::Debug2Format(&value));
                         } else {
                             warn!("No telemetry received for {}", stringify!($field));
                         }

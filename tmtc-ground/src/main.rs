@@ -369,7 +369,7 @@ async fn main(spawner: Spawner) {
                         parse_beacon!(data, lst_beacon, channel, (packets_sent));
                         parse_beacon!(data, eps_beacon, channel, (bat1_voltage));
                         parse_beacon!(data, high_rate_upper_beacon, channel);
-                        parse_beacon!(data, low_rate_upper_beacon, channel, (gps_ecef));
+                        parse_beacon!(data, low_rate_upper_beacon, channel, (gps_pos));
                         parse_beacon!(data, lower_sensor_beacon, channel);
                     },
                     LSTMessage::Telem(tm) => {
