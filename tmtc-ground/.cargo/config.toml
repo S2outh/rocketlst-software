@@ -1,5 +1,6 @@
 [target.thumbv7em-none-eabihf]
-runner = "probe-rs run --chip STM32H723VG"
+runner = "./runner.sh"
+
 rustflags = [
   "-C", "link-arg=-Tlink.x", # linker file
   "-C", "link-arg=--nmagic", # no std memory layout
@@ -9,4 +10,5 @@ rustflags = [
 [build]
 target = "thumbv7em-none-eabihf"
 
-
+[net]
+git-fetch-with-cli = true
