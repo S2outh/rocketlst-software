@@ -26,7 +26,7 @@ use south_common::{
         EPSBeacon, HighRateUpperSensorBeacon, LSTBeacon, LowRateUpperSensorBeacon,
         LowerSensorBeacon,
     },
-    can_config::CanPeriphConfig,
+    configs::can_config::CanPeriphConfig,
     definitions::telemetry as tm,
     tmtc_system::Beacon,
 };

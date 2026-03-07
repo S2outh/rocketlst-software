@@ -126,7 +126,7 @@ uint8_t board_apply_radio_settings(uint8_t mode) {
 	FOCCFG =    FOCCFG_FOC_BS_CS_GATE_NO_FREEZE |
 	            FOCCFG_FOC_PRE_K_3K |
 	            FOCCFG_FOC_POST_K_K_2 |
-				// Changed to fix inreliable transmission (~80% success) for high data rates
+				      // Changed to fix inreliable transmission (~80% success) for high data rates
 	            //FOCCFG_FOC_LIMIT_NO_COMPENSATE; // Seems fine
 	            FOCCFG_FOC_LIMIT_BW_CHAN_8; // SmartRFM Default, doppler shift should be fine (5khz offset should work)
 	            //FOCCFG_FOC_LIMIT_BW_CHAN_4; // Seems fine
