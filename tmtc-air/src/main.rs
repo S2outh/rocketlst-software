@@ -240,11 +240,19 @@ async fn main(spawner: Spawner) {
     let cc_rx_led = Output::new(p.PE7, Level::Low, Speed::Low);
     let cc_tx_led = Output::new(p.PE8, Level::Low, Speed::Low);
 
+    let can_recv_led = Output::new(p.PE9, Level::Low, Speed::High);
+    // let led = Output::new(p.PE10, Level::Low, Speed::Low);
+    // let led = Output::new(p.PE11, Level::Low, Speed::Low);
+    // let led = Output::new(p.PE12, Level::Low, Speed::Low);
+    // let led = Output::new(p.PE13, Level::Low, Speed::Low);
+    // let led = Output::new(p.PE14, Level::Low, Speed::Low);
+
     // Startup
     spawner.must_spawn(petter(watchdog));
     spawner.must_spawn(io_threads::can_receiver_thread(
         receivable_beacons,
         can_instance.reader(),
+        can_recv_led
     ));
     spawner.must_spawn(io_threads::telemetry_thread(lst_beacon, lst_tx, lst_rx));
     spawner.must_spawn(cc_mode(cc_rx_pin, cc_rx_led));

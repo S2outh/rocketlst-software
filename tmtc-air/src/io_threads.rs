@@ -2,10 +2,7 @@ use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, mutex::Mutex};
 
 use defmt::*;
 use embassy_stm32::{
-    can::BufferedFdCanReceiver,
-    crc::Crc,
-    mode::Async,
-    usart::{RingBufferedUartRx, UartTx},
+    can::BufferedFdCanReceiver, crc::Crc, gpio::Output, mode::Async, usart::{RingBufferedUartRx, UartTx}
 };
 use embassy_time::{Duration, Instant, Ticker, with_timeout};
 use openlst_driver::{
@@ -54,12 +51,14 @@ pub async fn lst_sender_thread(
 pub async fn can_receiver_thread(
     beacons: &'static [&'static Mutex<ThreadModeRawMutex, dyn Beacon<Timestamp = u64>>],
     can: BufferedFdCanReceiver,
+    mut led: Output<'static>,
 ) {
     loop {
         // receive from can
         match can.receive().await {
             Ok(envelope) => {
                 if let embedded_can::Id::Standard(id) = envelope.frame.id() {
+                    led.toggle();
                     for beacon in beacons {
                         if let Err(e) = beacon
                             .lock()
