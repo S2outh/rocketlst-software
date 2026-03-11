@@ -28,6 +28,7 @@ use south_common::{
     },
     configs::can_config::CanPeriphConfig,
     definitions::telemetry as tm,
+    definitions::internal_msgs,
     tmtc_system::Beacon,
 };
 
@@ -118,11 +119,11 @@ fn get_rcc_config() -> rcc::Config {
     rcc_config.hsi = Some(rcc::HSIPrescaler::DIV1); // 64 MHz
     rcc_config.pll1 = Some(rcc::Pll {
         source: rcc::PllSource::HSI,
-        prediv: rcc::PllPreDiv::DIV8,   // 8 MHz
-        mul: rcc::PllMul::MUL40,        // 320 MHz
-        divp: Some(rcc::PllDiv::DIV2),  // 160 MHz
-        divq: Some(rcc::PllDiv::DIV2),  // 160 MHz
-        divr: Some(rcc::PllDiv::DIV5),  // 64 MHz
+        prediv: rcc::PllPreDiv::DIV8,  // 8 MHz
+        mul: rcc::PllMul::MUL40,       // 320 MHz
+        divp: Some(rcc::PllDiv::DIV2), // 160 MHz
+        divq: Some(rcc::PllDiv::DIV2), // 160 MHz
+        divr: Some(rcc::PllDiv::DIV5), // 64 MHz
     });
     rcc_config.sys = rcc::Sysclk::PLL1_P; // cpu runs with 160 MHz
     rcc_config.mux.fdcansel = rcc::mux::Fdcansel::PLL1_Q; // can runs with 160 MHz
@@ -157,11 +158,7 @@ async fn main(spawner: Spawner) {
     const FW_VERSION: &str = env!("FW_VERSION");
     const FW_HASH: &str = env!("FW_HASH");
 
-    info!(
-        "Launching: FW version={} hash={}",
-        FW_VERSION,
-        FW_HASH
-    );
+    info!("Launching: FW version={} hash={}", FW_VERSION, FW_HASH);
 
     // unleash independent watchdog
     let mut watchdog = IndependentWatchdog::new(p.IWDG1, WATCHDOG_TIMEOUT_US);
@@ -174,6 +171,8 @@ async fn main(spawner: Spawner) {
 
     can_configurator
         .add_receive_topic_range(tm::id_range())
+        .unwrap()
+        .add_receive_topic_range(internal_msgs::id_range())
         .unwrap();
 
     let can_instance = can_configurator.activate(
@@ -240,11 +239,22 @@ async fn main(spawner: Spawner) {
     let cc_rx_led = Output::new(p.PE7, Level::Low, Speed::Low);
     let cc_tx_led = Output::new(p.PE8, Level::Low, Speed::Low);
 
+    let can_recv_led = Output::new(p.PE9, Level::Low, Speed::High);
+    // let led = Output::new(p.PE10, Level::Low, Speed::Low);
+    // let led = Output::new(p.PE11, Level::Low, Speed::Low);
+    // let led = Output::new(p.PE12, Level::Low, Speed::Low);
+    // let led = Output::new(p.PE13, Level::Low, Speed::Low);
+    // let led = Output::new(p.PE14, Level::Low, Speed::Low);
+
     // Startup
     spawner.must_spawn(petter(watchdog));
     spawner.must_spawn(io_threads::can_receiver_thread(
         receivable_beacons,
         can_instance.reader(),
+        can_recv_led,
+    ));
+    spawner.must_spawn(io_threads::can_sender_thread(
+        can_instance.writer()
     ));
     spawner.must_spawn(io_threads::telemetry_thread(lst_beacon, lst_tx, lst_rx));
     spawner.must_spawn(cc_mode(cc_rx_pin, cc_rx_led));
