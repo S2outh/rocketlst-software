@@ -1,47 +1,41 @@
+use core::sync::atomic::Ordering;
+
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, mutex::Mutex};
 
 use defmt::*;
 use embassy_stm32::{
-    can::BufferedFdCanReceiver, crc::Crc, gpio::Output, mode::Async, usart::{RingBufferedUartRx, UartTx}
+    can::{BufferedFdCanReceiver, BufferedFdCanSender, frame::FdFrame},
+    crc::Crc,
+    gpio::Output,
+    mode::Async,
+    usart::{RingBufferedUartRx, UartTx},
 };
 use embassy_time::{Duration, Instant, Ticker, with_timeout};
 use openlst_driver::{
     lst_receiver::{LSTMessage, LSTReceiver},
     lst_sender::{LSTCmd, LSTSender},
 };
+use portable_atomic::{AtomicU8, AtomicU64};
 use south_common::{
-    beacons::{LSTBeacon},
-    definitions::telemetry as tm,
-    tmtc_system::{Beacon, BeaconOperationError},
+    beacons::LSTBeacon,
+    definitions::{internal_msgs, telemetry as tm},
+    tmtc_system::{Beacon, BeaconOperationError, TMValue, TelemetryDefinition}, types::Timesync,
 };
 
-/// send a beacon to the rocketlst with a specific intervall
-#[embassy_executor::task(pool_size = 5)]
-pub async fn lst_sender_thread(
-    send_intervall: Duration,
-    beacon: &'static Mutex<ThreadModeRawMutex, dyn Beacon<Timestamp = u64>>,
-    crc: &'static Mutex<ThreadModeRawMutex, Crc<'static>>,
-    lst: &'static Mutex<ThreadModeRawMutex, LSTSender<UartTx<'static, Async>>>,
-) {
-    let mut ticker = Ticker::every(send_intervall);
-    loop {{
-            let mut beacon = beacon.lock().await;
-            beacon.set_timestamp(Instant::now().as_millis());
-
-            debug!("sending beacon: {}", beacon.name());
-
-            let bytes = {
-                let mut crc = crc.lock().await;
-                crc.reset();
-                let mut crc_func = |bytes: &[u8]| crc.feed_bytes(bytes) as u16;
-                beacon.to_bytes(&mut crc_func)
-            };
-
-            if let Err(e) = lst.lock().await.relay(bytes).await {
-                error!("could not send via lsp: {}", e);
-            }
-            beacon.flush();
-        }
+/// Request a timesync frame every N seconds
+const TIMESYNC_REQ_ID: u8 = 10;
+static REQ_TIME: AtomicU64 = AtomicU64::new(0);
+static REQ_ANS_PRIO: AtomicU8 = AtomicU8::new(0);
+static TIME_REF: AtomicU64 = AtomicU64::new(0);
+#[embassy_executor::task]
+pub async fn can_sender_thread(mut can_sender: BufferedFdCanSender) {
+    const REQ_INTERVALL: Duration = Duration::from_secs(10);
+    let mut ticker = Ticker::every(REQ_INTERVALL);
+    loop {
+        let frame = FdFrame::new_standard(internal_msgs::TimesyncRequest.id(), core::slice::from_ref(&TIMESYNC_REQ_ID)).unwrap();
+        REQ_TIME.store(Instant::now().as_micros(), Ordering::Release);
+        REQ_ANS_PRIO.store(u8::MAX, Ordering::Release);
+        can_sender.write(frame).await;
         ticker.next().await;
     }
 }
@@ -59,6 +53,19 @@ pub async fn can_receiver_thread(
             Ok(envelope) => {
                 if let embedded_can::Id::Standard(id) = envelope.frame.id() {
                     led.toggle();
+                    if id.as_raw() == internal_msgs::TimesyncAnswer.id() {
+                        if let Ok((_len, timesync_answer)) = Timesync::read(envelope.frame.data()) {
+                            if timesync_answer.request_id != TIMESYNC_REQ_ID || timesync_answer.priority >= REQ_ANS_PRIO.load(Ordering::Acquire) {
+                                continue
+                            }
+                            REQ_ANS_PRIO.store(timesync_answer.priority, Ordering::Release);
+                            let transfer_time = Instant::now().as_micros() - REQ_TIME.load(Ordering::Acquire);
+                            let time_ref = timesync_answer.unix_time + transfer_time / 2 - Instant::now().as_micros();
+                            info!("Time ref is now {}", time_ref);
+                            TIME_REF.store(time_ref, Ordering::Relaxed);
+                        }
+                        continue
+                    }
                     for beacon in beacons {
                         if let Err(e) = beacon
                             .lock()
@@ -81,6 +88,40 @@ pub async fn can_receiver_thread(
         };
     }
 }
+
+/// send a beacon to the rocketlst with a specific intervall
+#[embassy_executor::task(pool_size = 5)]
+pub async fn lst_sender_thread(
+    send_intervall: Duration,
+    beacon: &'static Mutex<ThreadModeRawMutex, dyn Beacon<Timestamp = u64>>,
+    crc: &'static Mutex<ThreadModeRawMutex, Crc<'static>>,
+    lst: &'static Mutex<ThreadModeRawMutex, LSTSender<UartTx<'static, Async>>>,
+) {
+    let mut ticker = Ticker::every(send_intervall);
+    loop {
+        {
+            let mut beacon = beacon.lock().await;
+            let timestamp = TIME_REF.load(Ordering::Relaxed) + Instant::now().as_micros();
+            beacon.set_timestamp(timestamp / 1000);
+
+            debug!("sending beacon: {}", beacon.name());
+
+            let bytes = {
+                let mut crc = crc.lock().await;
+                crc.reset();
+                let mut crc_func = |bytes: &[u8]| crc.feed_bytes(bytes) as u16;
+                beacon.to_bytes(&mut crc_func)
+            };
+
+            if let Err(e) = lst.lock().await.relay(bytes).await {
+                error!("could not send via lsp: {}", e);
+            }
+            beacon.flush();
+        }
+        ticker.next().await;
+    }
+}
+
 
 /// access lst telemetry
 #[embassy_executor::task]
