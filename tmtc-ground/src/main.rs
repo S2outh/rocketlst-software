@@ -31,7 +31,6 @@ use south_common::{
     tmtc_system::{Beacon, ParseError, ground_tm::{Serializer, SerializableTMValue}}
 };
 
-
 // General setup stuff
 const WATCHDOG_TIMEOUT_US: u32 = 300_000;
 const WATCHDOG_PETTING_INTERVAL_US: u32 = WATCHDOG_TIMEOUT_US / 2;
@@ -61,7 +60,7 @@ static S_RX_BUF: StaticCell<[u8; S_RX_BUF_SIZE]> = StaticCell::new();
 
 // Ethernet
 // queues for raw packets before and after processing
-static PACKETS: StaticCell<PacketQueue<4, 4>> = StaticCell::new();
+static PACKET_QUEUE: StaticCell<PacketQueue<4, 4>> = StaticCell::new();
 // resources to hold the sockets used by the net driver. One for DHCP, one for DNS and one for TCP
 static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
 // buffer sizes for tcp data before and after processing
@@ -101,13 +100,6 @@ fn get_rcc_config() -> rcc::Config {
     let mut rcc_config = rcc::Config::default();
     rcc_config.hsi = Some(rcc::HSIPrescaler::DIV1); // 64 MHz
     rcc_config.hsi48 = Some(Default::default()); // needed for RNG
-
-    // Enable internal oscillating crystal and use it to drive external ETH 
-    rcc_config.csi = true;
-    rcc_config.hse = Some(rcc::Hse {
-        freq: mhz(25),
-        mode: rcc::HseMode::Oscillator
-    });
 
     // pll to multiply clock cycles
     rcc_config.pll1 = Some(rcc::Pll {
@@ -280,7 +272,7 @@ async fn main(spawner: Spawner) {
     info!("Creating Ethernet device...");
 
     let device = Ethernet::new(
-        PACKETS.init(PacketQueue::<4, 4>::new()),
+        PACKET_QUEUE.init(PacketQueue::<4, 4>::new()),
         eth_int,
         Irqs,
         ref_clk,
@@ -296,7 +288,7 @@ async fn main(spawner: Spawner) {
         mdc,
     );
 
-    let config = embassy_net::Config::dhcpv4(Default::default());
+    let net_cfg = embassy_net::Config::dhcpv4(Default::default());
 
     // Generate random seed.
     let mut rng = Rng::new(p.RNG, Irqs);
@@ -306,7 +298,7 @@ async fn main(spawner: Spawner) {
     
     // Initialize network stack
     info!("Initializing network task");
-    let (stack, runner) = embassy_net::new(device, config, RESOURCES.init(StackResources::new()), seed);
+    let (stack, runner) = embassy_net::new(device, net_cfg, RESOURCES.init(StackResources::new()), seed);
 
     // Launch watchdog task
     spawner.must_spawn(petter(watchdog));
@@ -314,7 +306,6 @@ async fn main(spawner: Spawner) {
     // Launch network task
     spawner.must_spawn(net_task(runner));
 
-    stack.wait_link_up().await;
     stack.wait_config_up().await;
 
     info!("Stack initialized");
