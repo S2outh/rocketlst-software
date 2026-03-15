@@ -88,6 +88,12 @@
 #define CONFIG_UART1_UCR ((1<<7) | (1<<1))
 #endif
 
+#ifndef UART1_TX_READY_SPIN_LIMIT
+// Bound UART1 TX waits so a wedged UART peripheral does not turn into a
+// watchdog reset.
+#define UART1_TX_READY_SPIN_LIMIT 65535
+#endif
+
 #ifndef RADIO_MODE_DEFAULT_RX
 #define RADIO_MODE_DEFAULT_RX amateur_rf_mode_437_7k_FEC
 #endif

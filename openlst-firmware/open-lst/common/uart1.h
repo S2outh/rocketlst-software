@@ -34,7 +34,7 @@
 void uart1_rx_isr() __interrupt (URX1_VECTOR) __using (2);
 void uart1_init(void);
 uint8_t uart1_get_message(__xdata uint8_t *buf);
-void uart1_send_message(const __xdata uint8_t *msg, uint8_t len);
+uint8_t uart1_send_message(const __xdata uint8_t *msg, uint8_t len);
 uint8_t uart1_try_send_message(const __xdata uint8_t *msg, uint8_t len);
 void uart1_report_status(void);
 

@@ -41,6 +41,15 @@ static volatile __bit uart1_drop_pending;
 static uint8_t __xdata rx_buffer[UART1_RX_BUFFERS][ESP_MAX_PAYLOAD];
 static uint8_t __xdata tx_buffer[ESP_MAX_PAYLOAD];
 
+static void uart1_recover_tx(void) {
+	IEN2 &= ~IEN2_UTX1IE;
+	U1BAUD = CONFIG_UART1_BAUD;
+	U1GCR = CONFIG_UART1_GCR;
+	U1CSR = (1<<7) | (1<<6);
+	U1UCR = CONFIG_UART1_UCR;
+	UTX1IF = 1;
+}
+
 static uint8_t uart1_buffers_full(void) {
 	uint8_t i;
 	for (i = 0; i < UART1_RX_BUFFERS; i++) {
@@ -156,21 +165,41 @@ void uart1_report_status(void) {
 	#endif
 }
 
-void uart1_put(char c) {
-  while (!UTX1IF);
-  U1DBUF = c;
-  UTX1IF = 0;
+static uint8_t uart1_put(char c) {
+	uint16_t wait;
+
+	wait = UART1_TX_READY_SPIN_LIMIT;
+	while (!UTX1IF && wait) {
+		wait--;
+	}
+	if (!UTX1IF) {
+		uart1_tx_blocked_packets++;
+		uart1_recover_tx();
+		return 0;
+	}
+	U1DBUF = c;
+	UTX1IF = 0;
+	return 1;
 }
 
 // TODO: use interrupts
-void uart1_send_message(const __xdata uint8_t *msg, uint8_t len) {
+uint8_t uart1_send_message(const __xdata uint8_t *msg, uint8_t len) {
 	// ESP header
-	uart1_put(ESP_START_BYTE_0);
-	uart1_put(ESP_START_BYTE_1);
-	uart1_put(len);
-	while (len--) {
-		uart1_put(*(msg++));
+	if (!uart1_put(ESP_START_BYTE_0)) {
+		return 0;
 	}
+	if (!uart1_put(ESP_START_BYTE_1)) {
+		return 0;
+	}
+	if (!uart1_put(len)) {
+		return 0;
+	}
+	while (len--) {
+		if (!uart1_put(*(msg++))) {
+			return 0;
+		}
+	}
+	return 1;
 }
 
 uint8_t uart1_try_send_message(const __xdata uint8_t *msg, uint8_t len) {
@@ -184,8 +213,7 @@ uint8_t uart1_try_send_message(const __xdata uint8_t *msg, uint8_t len) {
 		}
 		return 0;
 	}
-	uart1_send_message(msg, len);
-	return 1;
+	return uart1_send_message(msg, len);
 }
 
 static __xdata command_t print_buf;
