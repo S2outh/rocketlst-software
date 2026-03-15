@@ -82,8 +82,8 @@ static S_RX_BUF: StaticCell<[u8; S_RX_BUF_SIZE]> = StaticCell::new();
 
 // bin can interrupts
 bind_interrupts!(struct Irqs {
-    //FDCAN1_IT0 => can::IT0InterruptHandler<FDCAN1>;
-    //FDCAN1_IT1 => can::IT1InterruptHandler<FDCAN1>;
+    FDCAN1_IT0 => can::IT0InterruptHandler<FDCAN1>;
+    FDCAN1_IT1 => can::IT1InterruptHandler<FDCAN1>;
 
     FDCAN2_IT0 => can::IT0InterruptHandler<FDCAN2>;
     FDCAN2_IT1 => can::IT1InterruptHandler<FDCAN2>;
@@ -164,10 +164,13 @@ async fn main(spawner: Spawner) {
     let mut watchdog = IndependentWatchdog::new(p.IWDG1, WATCHDOG_TIMEOUT_US);
     watchdog.unleash();
 
-    // can configuration
+    // can 1 configuration
     let mut can_configurator =
-    //    CanPeriphConfig::new(CanConfigurator::new(p.FDCAN1, p.PD0, p.PD1, Irqs));
         CanPeriphConfig::new(CanConfigurator::new(p.FDCAN2, p.PB5, p.PB6, Irqs));
+
+    // can 2 configuration
+    // let mut can_configurator =
+    //     CanPeriphConfig::new(CanConfigurator::new(p.FDCAN1, p.PD0, p.PD1, Irqs));
 
     can_configurator
         .add_receive_topic_range(tm::id_range())
@@ -181,8 +184,8 @@ async fn main(spawner: Spawner) {
     );
 
     // set can standby pin to low
-    // let _can_standby = Output::new(p.PD7, Level::Low, Speed::Low);
-    let _can_standby = Output::new(p.PB7, Level::Low, Speed::Low);
+    let _can_1_standby = Output::new(p.PB7, Level::Low, Speed::Low);
+    // let _can_2_standby = Output::new(p.PD7, Level::Low, Speed::Low);
 
     // -- Uart configuration
     let mut uart_config = usart::Config::default();

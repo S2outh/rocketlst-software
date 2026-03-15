@@ -231,8 +231,8 @@ uint8_t radio_get_message(__xdata command_t *cmd, uint8_t *uart_sel) {
 		radio_packets_rejected_other++;
 		radio_rx_rejected_short++;
 		rf_rx_complete = 0;
+    radio_debug_print("RF_RX_SHORT");
 		radio_listen();
-		radio_debug_print("RF_RX_SHORT");
 		return 0;
 	}
 	// The footer is at the end of the message
