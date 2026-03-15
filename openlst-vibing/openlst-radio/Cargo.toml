@@ -1,0 +1,13 @@
+[package]
+name = "openlst-radio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = []
+cc1110-real-mmio = []
+cc1110-lowlevel = []
+
+[dependencies]
+openlst-core = { path = "../openlst-core", features = ["std"] }

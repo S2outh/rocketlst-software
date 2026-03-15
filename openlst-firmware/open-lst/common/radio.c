@@ -195,6 +195,7 @@ uint8_t radio_get_message(__xdata command_t *cmd, uint8_t *uart_sel) {
 		// If not just drop it
 		radio_packets_rejected_other++;
 		rf_rx_complete = 0;
+		radio_listen();
 		return 0;
 	}
 	// The footer is at the end of the message

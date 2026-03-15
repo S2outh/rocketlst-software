@@ -347,7 +347,7 @@ class Translator(object):
                 out += CMD_OPCODE_MAP[b[5:6]].bytes_to_string(b[6:])
                 return out
             except Exception:
-                return "lst unknown " + hexlify(b[5:])
+                return "lst unknown " + hexlify(b[5:]).decode('ascii')
                 #return "lst unknown " + (b).decode('utf-8')
         if b[4:5] == LST_RELAY:
             try:
@@ -357,7 +357,7 @@ class Translator(object):
                 out += CMD_OPCODE_MAP[b[5:6]].bytes_to_string(b[6:])
                 return out
             except Exception:
-                return "rel unknown " + hexlify(b[5:])
+                return "rel unknown " + hexlify(b[5:]).decode('ascii')
                 #return "lst unknown " + (b).decode('utf-8')
         else:
             return "unknown_sys " + str(hexlify(b[4:]))
