@@ -94,6 +94,14 @@
 #define UART1_TX_READY_SPIN_LIMIT 65535
 #endif
 
+#ifndef UART1_TX_TIMEOUT_RECOVERY
+#if CONFIG_CAPABLE_RF_RX == 1
+#define UART1_TX_TIMEOUT_RECOVERY 1
+#else
+#define UART1_TX_TIMEOUT_RECOVERY 0
+#endif
+#endif
+
 #ifndef RADIO_MODE_DEFAULT_RX
 #define RADIO_MODE_DEFAULT_RX amateur_rf_mode_437_7k_FEC
 #endif

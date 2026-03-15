@@ -166,6 +166,12 @@ void uart1_report_status(void) {
 }
 
 static uint8_t uart1_put(char c) {
+	#if UART1_TX_TIMEOUT_RECOVERY == 0
+	while (!UTX1IF);
+	U1DBUF = c;
+	UTX1IF = 0;
+	return 1;
+	#else
 	uint16_t wait;
 
 	wait = UART1_TX_READY_SPIN_LIMIT;
@@ -180,6 +186,7 @@ static uint8_t uart1_put(char c) {
 	U1DBUF = c;
 	UTX1IF = 0;
 	return 1;
+	#endif
 }
 
 // TODO: use interrupts
