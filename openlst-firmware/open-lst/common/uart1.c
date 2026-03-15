@@ -30,7 +30,6 @@
 
 volatile __data uint32_t uart1_rx_count;
 volatile __data uint16_t uart1_rx_dropped;
-volatile __data uint32_t uart1_tx_timeout_count;
 
 static esp_state_t __data rx_esp_state;
 static uint8_t __data rx_buffer_ready[UART1_RX_BUFFERS];
@@ -64,7 +63,6 @@ void uart1_init(void) {
 	// Initialize the receive counter
 	uart1_rx_count = 0;
 	uart1_rx_dropped = 0;
-	uart1_tx_timeout_count = 0;
 	uart1_drop_pending = 0;
 
 	// Give USART1 priority on port 2
@@ -156,34 +154,20 @@ void uart1_report_status(void) {
 	#endif
 }
 
-static uint8_t uart1_wait_tx_ready(void) {
-	uint16_t timeout = UART_TX_SPIN_LIMIT;
-	while (!UTX1IF) {
-		if (--timeout == 0) {
-			uart1_tx_timeout_count++;
-			return 0;
-		}
-	}
-	return 1;
-}
-
-uint8_t uart1_put(char c) {
-  if (!uart1_wait_tx_ready()) {
-    return 0;
-  }
+void uart1_put(char c) {
+  while (!UTX1IF);
   U1DBUF = c;
   UTX1IF = 0;
-  return 1;
 }
 
 // TODO: use interrupts
 void uart1_send_message(const __xdata uint8_t *msg, uint8_t len) {
 	// ESP header
-	if (!uart1_put(ESP_START_BYTE_0)) return;
-	if (!uart1_put(ESP_START_BYTE_1)) return;
-	if (!uart1_put(len)) return;
+	uart1_put(ESP_START_BYTE_0);
+	uart1_put(ESP_START_BYTE_1);
+	uart1_put(len);
 	while (len--) {
-		if (!uart1_put(*(msg++))) return;
+		uart1_put(*(msg++));
 	}
 }
 

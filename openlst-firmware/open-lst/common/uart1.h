@@ -43,6 +43,5 @@ void dprintf1(const char *msg);
 
 extern volatile __data uint32_t uart1_rx_count;
 extern volatile __data uint16_t uart1_rx_dropped;
-extern volatile __data uint32_t uart1_tx_timeout_count;
 
 #endif
