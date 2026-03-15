@@ -50,6 +50,9 @@ __xdata uint32_t radio_packets_good;
 __xdata uint32_t radio_packets_rejected_checksum;
 __xdata uint32_t radio_packets_rejected_reserved;
 __xdata uint32_t radio_packets_rejected_other;
+__xdata uint32_t radio_rx_rejected_short;
+__xdata uint32_t radio_rx_rejected_too_long;
+__xdata uint32_t radio_tx_timeout_count;
 
 volatile __bit rf_mode_tx = 0;  // controls whether the rftxrx ISR is transmitting or receiving
 
@@ -202,6 +205,9 @@ void radio_init(void) {
 	radio_packets_rejected_checksum = 0;
 	radio_packets_rejected_reserved = 0;
 	radio_packets_rejected_other = 0;
+	radio_rx_rejected_short = 0;
+	radio_rx_rejected_too_long = 0;
+	radio_tx_timeout_count = 0;
 	// TODO: default channel?
 	radio_set_modes(RADIO_MODE_DEFAULT_RX, RADIO_MODE_DEFAULT_TX);
 }
@@ -223,6 +229,7 @@ uint8_t radio_get_message(__xdata command_t *cmd, uint8_t *uart_sel) {
 	                    sizeof(footer->hwid)) {  // The HWID is already accounted for in the command header
 		// If not just drop it
 		radio_packets_rejected_other++;
+		radio_rx_rejected_short++;
 		rf_rx_complete = 0;
 		radio_listen();
 		radio_debug_print("RF_RX_SHORT");
@@ -241,6 +248,7 @@ uint8_t radio_get_message(__xdata command_t *cmd, uint8_t *uart_sel) {
 	             sizeof(footer->hwid);  // However the HWID is included (moved to the beginning)
 	if (msg_length > sizeof(*cmd)) {
 		radio_packets_rejected_other++;
+		radio_rx_rejected_too_long++;
 		rf_rx_complete = 0;
 		radio_listen();
 		radio_debug_print("RF_RX_TOO_LONG");
@@ -471,6 +479,7 @@ void radio_send_packet(const __xdata command_t* cmd, uint8_t len,
 		rf_mode_tx = 0;
 		tx_failed = 1;
 		radio_packets_rejected_other++;
+		radio_tx_timeout_count++;
 		radio_debug_print("RF_TX_TIMEOUT");
 	}
 	#else

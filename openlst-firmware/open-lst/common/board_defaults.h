@@ -305,7 +305,7 @@
 
 #ifndef UART1_DEBUG_PRINTS
 // Emit ASCII debug packets on UART1 for rare fault conditions.
-#define UART1_DEBUG_PRINTS 1
+#define UART1_DEBUG_PRINTS 0
 #endif
 
 // These are the default radio modes
