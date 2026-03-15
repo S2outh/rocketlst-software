@@ -178,7 +178,7 @@ async fn sender_task(mut nats_client: NatsCon<'static>, receiver: DynamicReceive
 
 #[embassy_executor::task]
 async fn telemetry_request_thread(mut lst_sender: LSTSender<UartTx<'static, Async>>) {
-    const LST_TM_INTERVALL: Duration = Duration::from_secs(10);
+    const LST_TM_INTERVALL: Duration = Duration::from_secs(1);
     let mut ticker = Ticker::every(LST_TM_INTERVALL);
     loop {
         ticker.next().await;
@@ -190,7 +190,7 @@ async fn telemetry_request_thread(mut lst_sender: LSTSender<UartTx<'static, Asyn
 
 async fn local_lst_telemetry(nats_sender: &DynamicSender<'static, SerializedInfo>, tm: LSTTelemetry) {
 
-    let timestamp = Instant::now().as_millis();
+    let timestamp = Instant::now().as_micros();
 
     info!("Received local lst Telemetry at {}", timestamp);
 
