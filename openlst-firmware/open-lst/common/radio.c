@@ -486,7 +486,14 @@ void radio_send_packet(const __xdata command_t* cmd, uint8_t len,
 	while(rf_mode_tx); // Block until TX complete
 	#endif
 
+	#if CONFIG_CAPABLE_RF_RX == 1
 	radio_listen();
+	#else
+	IEN2 &= ~IEN2_RFIE;
+	RFST = RFST_SIDLE;
+	rf_rx_underway = 0;
+	rf_rx_complete = 0;
+	#endif
 	if (!tx_failed) {
 		radio_packets_sent++;
 	}

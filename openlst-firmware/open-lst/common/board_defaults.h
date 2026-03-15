@@ -308,6 +308,11 @@
 #define UART1_DEBUG_PRINTS 0
 #endif
 
+#ifndef UART_TX_SPIN_LIMIT
+// Break out if the UART TX ready flag gets stuck.
+#define UART_TX_SPIN_LIMIT 65535
+#endif
+
 // These are the default radio modes
 #ifndef BOARD_RF_SETTINGS
 typedef enum {
