@@ -35,7 +35,9 @@ void uart1_rx_isr() __interrupt (URX1_VECTOR) __using (2);
 void uart1_init(void);
 uint8_t uart1_get_message(__xdata uint8_t *buf);
 void uart1_send_message(const __xdata uint8_t *msg, uint8_t len);
+uint8_t uart1_try_send_message(const __xdata uint8_t *msg, uint8_t len);
 void uart1_report_status(void);
+void uart1_tx_isr(void) __interrupt (UTX1_VECTOR);
 
 // TODO: better
 void dprintf1(const char *msg);
@@ -43,5 +45,6 @@ void dprintf1(const char *msg);
 
 extern volatile __data uint32_t uart1_rx_count;
 extern volatile __data uint16_t uart1_rx_dropped;
+extern volatile __xdata uint32_t uart1_tx_blocked_packets;
 
 #endif

@@ -30,6 +30,7 @@
 
 volatile __data uint32_t uart1_rx_count;
 volatile __data uint16_t uart1_rx_dropped;
+volatile __xdata uint32_t uart1_tx_blocked_packets;
 
 static esp_state_t __data rx_esp_state;
 static uint8_t __data rx_buffer_ready[UART1_RX_BUFFERS];
@@ -37,8 +38,11 @@ static uint8_t __data rx_buffer_len[UART1_RX_BUFFERS];
 static uint8_t __data rx_active_buffer;
 static uint8_t __data rx_buffer_offset;
 static volatile __bit uart1_drop_pending;
+static volatile __bit uart1_tx_busy;
+static uint8_t __data uart1_tx_len;
+static uint8_t __data uart1_tx_offset;
 static uint8_t __xdata rx_buffer[UART1_RX_BUFFERS][ESP_MAX_PAYLOAD];
-static uint8_t __xdata tx_buffer[ESP_MAX_PAYLOAD];
+static uint8_t __xdata tx_buffer[ESP_MAX_PAYLOAD + 3];
 
 static uint8_t uart1_buffers_full(void) {
 	uint8_t i;
@@ -63,7 +67,11 @@ void uart1_init(void) {
 	// Initialize the receive counter
 	uart1_rx_count = 0;
 	uart1_rx_dropped = 0;
+	uart1_tx_blocked_packets = 0;
 	uart1_drop_pending = 0;
+	uart1_tx_busy = 0;
+	uart1_tx_len = 0;
+	uart1_tx_offset = 0;
 
 	// Give USART1 priority on port 2
 	// USART0 defaults to this port so this is necessary
@@ -155,6 +163,7 @@ void uart1_report_status(void) {
 }
 
 void uart1_put(char c) {
+  while (uart1_tx_busy);
   while (!UTX1IF);
   U1DBUF = c;
   UTX1IF = 0;
@@ -171,6 +180,42 @@ void uart1_send_message(const __xdata uint8_t *msg, uint8_t len) {
 	}
 }
 
+uint8_t uart1_try_send_message(const __xdata uint8_t *msg, uint8_t len) {
+	uint8_t can_send;
+
+	if (len < 1 || len > ESP_MAX_PAYLOAD) {
+		return 0;
+	}
+
+	can_send = 0;
+	__critical {
+		if (uart1_tx_busy || !UTX1IF) {
+			uart1_tx_blocked_packets++;
+		} else {
+			uart1_tx_busy = 1;
+			can_send = 1;
+		}
+	}
+	if (!can_send) {
+		return 0;
+	}
+
+	tx_buffer[0] = ESP_START_BYTE_0;
+	tx_buffer[1] = ESP_START_BYTE_1;
+	tx_buffer[2] = len;
+	memcpyx(&tx_buffer[3], msg, len);
+
+	__critical {
+		uart1_tx_len = len + 3;
+		uart1_tx_offset = 1;
+		IEN2 |= IEN2_UTX1IE;
+		U1DBUF = tx_buffer[0];
+		UTX1IF = 0;
+	}
+
+	return 1;
+}
+
 static __xdata command_t print_buf;
 
 // Send a string out the UART as an "ASCII" command
@@ -182,6 +227,24 @@ void dprintf1(const char * msg) {
 	print_buf.header.command = common_msg_ascii;
 	len = strcpylenx((__xdata void *) print_buf.data, (__xdata void *) msg);
 	uart1_send_message((__xdata void *) &print_buf, len + sizeof(print_buf.header));
+}
+
+void uart1_tx_isr(void) __interrupt (UTX1_VECTOR) {
+	if (!uart1_tx_busy) {
+		IEN2 &= ~IEN2_UTX1IE;
+		return;
+	}
+
+	if (uart1_tx_offset < uart1_tx_len) {
+		U1DBUF = tx_buffer[uart1_tx_offset++];
+		UTX1IF = 0;
+		return;
+	}
+
+	uart1_tx_busy = 0;
+	uart1_tx_len = 0;
+	uart1_tx_offset = 0;
+	IEN2 &= ~IEN2_UTX1IE;
 }
 
 

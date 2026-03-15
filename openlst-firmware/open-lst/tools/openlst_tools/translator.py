@@ -288,7 +288,7 @@ class TelemCommand(Command):
             "packets_rejected_reserved={packets_rejected_reserved} "
             "packets_rejected_other={packets_rejected_other} "
             "cs_count={cs_count} "
-            "radio_tx_timeout_count={reserved1} "
+            "tx_fault_count={reserved1} "
             "radio_rx_rejected_short={custom0} "
             "radio_rx_rejected_too_long={custom1} "
             "adc={adc_values}"

@@ -136,7 +136,7 @@ void input_handle_rf_rx(void) {
 		// over the serial link
 		// TODO: respect the UART selection in flags
 		#if FORWARD_MESSAGES_RF == 1
-		uart1_send_message(buffer.msg, len);
+		uart1_try_send_message(buffer.msg, len);
 		#endif
 	}
 	return;
