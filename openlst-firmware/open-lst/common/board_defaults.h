@@ -118,6 +118,12 @@
 #define RF_RANGING_UART 1
 #endif
 
+#ifndef ENABLE_RF_CS_IRQ
+// Carrier-sense interrupts are only used for telemetry and can flood the CPU
+// on a busy channel.
+#define ENABLE_RF_CS_IRQ 0
+#endif
+
 // Automatically reboot unless commanded otherwise
 // by default every 10 minutes
 // Override this to 0 to disable the auto reboot

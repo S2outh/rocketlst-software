@@ -313,9 +313,11 @@ void rf_isr(void)  __interrupt (RF_VECTOR) __using (1) {
 		// RX SFD - Packet reception begun (sync word detected)
 		rf_rx_underway = 1;
 	}
+	#if ENABLE_RF_CS_IRQ == 1
 	if (RFIF & RFIF_IM_CS) {
 		radio_cs_count++;
 	}
+	#endif
 	RFIF = 0;
 }
 
@@ -348,9 +350,14 @@ void radio_listen(void) {
 	RFIF = 0;
 
 	// Set the interrupt mask
+	#if ENABLE_RF_CS_IRQ == 1
 	RFIM = RFIM_IM_DONE |  // Packet received or transmitted
 	       RFIM_IM_SFD |   // Start of frame (sync word) detected
 	       RFIM_IM_CS;     // Carrier sense (for telemetry)
+	#else
+	RFIM = RFIM_IM_DONE |  // Packet received or transmitted
+	       RFIM_IM_SFD;    // Start of frame (sync word) detected
+	#endif
 	IEN2 |= IEN2_RFIE;
 
 	rf_mode_tx = 0;
