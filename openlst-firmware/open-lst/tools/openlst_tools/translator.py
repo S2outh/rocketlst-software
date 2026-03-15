@@ -247,6 +247,54 @@ class Command(object):
         return ' '.join(rv)
 
 
+class TelemCommand(Command):
+    RESET_CAUSE_MAP = {
+        0: "power_on_or_brown_out",
+        8: "external",
+        16: "watchdog",
+    }
+
+    def bytes_to_string(self, msg):
+        values = {}
+
+        for i, arg in enumerate(self.args):
+            optional = (len(self.args) - i <= self.optional_args)
+            try:
+                k, msg = arg.from_bytes(msg)
+            except Exception:
+                if not optional:
+                    raise
+            else:
+                values[arg.name] = k
+
+        reset_cause = values.get("reserved", 0)
+        reset_cause_name = self.RESET_CAUSE_MAP.get(reset_cause, "unknown")
+        adc_values = [values.get("adc%d" % i) for i in range(10)]
+
+        return (
+            "reset_cause={reset_cause_name}({reset_cause}) "
+            "uptime={uptime} "
+            "uart0_rx={uart0_rx_count} "
+            "uart1_rx={uart1_rx_count} "
+            "uart1_rx_dropped={reserved0} "
+            "rx_mode={rx_mode} "
+            "tx_mode={tx_mode} "
+            "rssi={last_rssi} "
+            "lqi={last_lqi} "
+            "freqest={last_freqest} "
+            "packets_sent={packets_sent} "
+            "packets_good={packets_good} "
+            "packets_rejected_checksum={packets_rejected_checksum} "
+            "packets_rejected_reserved={packets_rejected_reserved} "
+            "packets_rejected_other={packets_rejected_other} "
+            "cs_count={cs_count} "
+            "radio_tx_timeout_count={reserved1} "
+            "radio_rx_rejected_short={custom0} "
+            "radio_rx_rejected_too_long={custom1} "
+            "adc={adc_values}"
+        ).format(adc_values=adc_values, reset_cause=reset_cause, reset_cause_name=reset_cause_name, **values)
+
+
 COMMANDS = [
     Command("ack", ACK),
     Command("nack", NACK),
@@ -272,36 +320,36 @@ COMMANDS = [
     Command("callsign", CALLSIGN,
             StringArgument("callsign")),
     Command("get_telem", GET_TELEM),
-    Command("telem", TELEM,
-            UInt8Argument("reserved"),
-            UInt32Argument("uptime"),
-            UInt32Argument("uart0_rx_count"),
-            UInt32Argument("uart1_rx_count"),
-            UInt8Argument("rx_mode"),
-            UInt8Argument("tx_mode"),
-            Int16Argument("adc0"),
-            Int16Argument("adc1"),
-            Int16Argument("adc2"),
-            Int16Argument("adc3"),
-            Int16Argument("adc4"),
-            Int16Argument("adc5"),
-            Int16Argument("adc6"),
-            Int16Argument("adc7"),
-            Int16Argument("adc8"),
-            Int16Argument("adc9"),
-            Int8Argument("last_rssi"),
-            UInt8Argument("last_lqi"),
-            Int8Argument("last_freqest"),
-            UInt32Argument("packets_sent"),
-            UInt32Argument("cs_count"),
-            UInt32Argument("packets_good"),
-            UInt32Argument("packets_rejected_checksum"),
-            UInt32Argument("packets_rejected_reserved"),
-            UInt32Argument("packets_rejected_other"),
-            UInt32Argument("reserved0"),
-            UInt32Argument("reserved1"),
-            UInt32Argument("custom0"),
-            UInt32Argument("custom1")),
+    TelemCommand("telem", TELEM,
+                 UInt8Argument("reserved"),
+                 UInt32Argument("uptime"),
+                 UInt32Argument("uart0_rx_count"),
+                 UInt32Argument("uart1_rx_count"),
+                 UInt8Argument("rx_mode"),
+                 UInt8Argument("tx_mode"),
+                 Int16Argument("adc0"),
+                 Int16Argument("adc1"),
+                 Int16Argument("adc2"),
+                 Int16Argument("adc3"),
+                 Int16Argument("adc4"),
+                 Int16Argument("adc5"),
+                 Int16Argument("adc6"),
+                 Int16Argument("adc7"),
+                 Int16Argument("adc8"),
+                 Int16Argument("adc9"),
+                 Int8Argument("last_rssi"),
+                 UInt8Argument("last_lqi"),
+                 Int8Argument("last_freqest"),
+                 UInt32Argument("packets_sent"),
+                 UInt32Argument("cs_count"),
+                 UInt32Argument("packets_good"),
+                 UInt32Argument("packets_rejected_checksum"),
+                 UInt32Argument("packets_rejected_reserved"),
+                 UInt32Argument("packets_rejected_other"),
+                 UInt32Argument("reserved0"),
+                 UInt32Argument("reserved1"),
+                 UInt32Argument("custom0"),
+                 UInt32Argument("custom1")),
     Command("ascii", ASCII, StringArgument("text")),
 ]
 

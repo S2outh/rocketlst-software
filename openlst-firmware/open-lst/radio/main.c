@@ -53,14 +53,18 @@
 uint32_t timeout = TIMEOUT;
 
 static void initialize(void) {
+	uint8_t reset_cause;
+
 	// Set up the watchdog reset timer for about 1 second
 	WATCHDOG_ENABLE;
 	WATCHDOG_CLEAR;
+	reset_cause = SLEEP & SLEEP_RST_BITS;
 
 	clock_init();
 	timers_init();
 	dma_init();
 	telemetry_init();
+	telemetry_set_reset_cause(reset_cause);
 	#ifdef CUSTOM_BOARD_INIT
 	board_init();  // User specified init functions
 	#endif
