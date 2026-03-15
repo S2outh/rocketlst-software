@@ -334,6 +334,11 @@
 #define UART1_DEBUG_PRINTS 0
 #endif
 
+#ifndef BOOT_DEBUG_PRINTS
+// Emit a boot-time ASCII packet describing the last reset cause.
+#define BOOT_DEBUG_PRINTS 0
+#endif
+
 // These are the default radio modes
 #ifndef BOARD_RF_SETTINGS
 typedef enum {

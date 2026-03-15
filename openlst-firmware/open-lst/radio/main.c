@@ -51,6 +51,28 @@
 #define TIMEOUT 100000
 
 uint32_t timeout = TIMEOUT;
+static uint8_t last_reset_cause;
+
+static void print_boot_debug(uint8_t reset_cause) {
+	#if BOOT_DEBUG_PRINTS == 1
+	switch (reset_cause) {
+		case 0:
+			dprintf1("RESET power_on_or_brown_out");
+			break;
+		case 8:
+			dprintf1("RESET external");
+			break;
+		case 16:
+			dprintf1("RESET watchdog");
+			break;
+		default:
+			dprintf1("RESET unknown");
+			break;
+	}
+	#else
+	reset_cause;
+	#endif
+}
 
 static void initialize(void) {
 	uint8_t reset_cause;
@@ -59,6 +81,7 @@ static void initialize(void) {
 	WATCHDOG_ENABLE;
 	WATCHDOG_CLEAR;
 	reset_cause = SLEEP & SLEEP_RST_BITS;
+	last_reset_cause = reset_cause;
 
 	clock_init();
 	timers_init();
@@ -90,8 +113,10 @@ void main(void) {
 	#endif
 
 	dprintf1(BOOT_STRING(GIT_REV));
+	print_boot_debug(last_reset_cause);
 	while (1) {
 		WATCHDOG_CLEAR;
+		uart1_report_status();
 		schedule_handle_events();
 		input_handle_uart0_rx();
 		input_handle_uart1_rx();

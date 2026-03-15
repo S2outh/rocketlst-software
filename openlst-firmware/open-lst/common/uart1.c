@@ -38,6 +38,7 @@ static uint8_t __data rx_buffer_len[UART1_RX_BUFFERS];
 static uint8_t __data rx_active_buffer;
 static uint8_t __data rx_buffer_offset;
 static volatile __bit uart1_drop_pending;
+static volatile __bit uart1_tx_timeout_pending;
 static uint8_t __xdata rx_buffer[UART1_RX_BUFFERS][ESP_MAX_PAYLOAD];
 static uint8_t __xdata tx_buffer[ESP_MAX_PAYLOAD];
 
@@ -75,6 +76,7 @@ void uart1_init(void) {
 	uart1_rx_dropped = 0;
 	uart1_tx_blocked_packets = 0;
 	uart1_drop_pending = 0;
+	uart1_tx_timeout_pending = 0;
 
 	// Give USART1 priority on port 2
 	// USART0 defaults to this port so this is necessary
@@ -162,6 +164,10 @@ void uart1_report_status(void) {
 		uart1_drop_pending = 0;
 		dprintf1("UART1_RX_DROP");
 	}
+	if (uart1_tx_timeout_pending) {
+		uart1_tx_timeout_pending = 0;
+		dprintf1("UART1_TX_TIMEOUT");
+	}
 	#endif
 }
 
@@ -180,6 +186,7 @@ static uint8_t uart1_put(char c) {
 	}
 	if (!UTX1IF) {
 		uart1_tx_blocked_packets++;
+		uart1_tx_timeout_pending = 1;
 		uart1_recover_tx();
 		return 0;
 	}

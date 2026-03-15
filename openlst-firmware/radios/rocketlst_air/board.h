@@ -25,6 +25,8 @@
 #define BOARD_HAS_RX_HOOK 1
 #define CONFIG_CAPABLE_RF_RX 0
 #define CONFIG_CAPABLE_RF_TX 1
+#define UART1_DEBUG_PRINTS 1
+#define BOOT_DEBUG_PRINTS 1
 
 // Disable UART0
 // #define UART0_ENABLED 0
