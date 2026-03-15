@@ -124,6 +124,12 @@
 #define ENABLE_RF_CS_IRQ 0
 #endif
 
+#ifndef ENABLE_RF_SFD_IRQ
+// Sync-word-detected interrupts are not required for normal RX handling and
+// can also flood the CPU on a noisy channel.
+#define ENABLE_RF_SFD_IRQ 0
+#endif
+
 // Automatically reboot unless commanded otherwise
 // by default every 10 minutes
 // Override this to 0 to disable the auto reboot
