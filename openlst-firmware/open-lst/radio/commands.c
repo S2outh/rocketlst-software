@@ -28,6 +28,8 @@
 uint8_t custom_commands(const __xdata command_t *cmd, uint8_t len, __xdata command_t *reply);
 #endif
 
+static __xdata radio_callsign_t olst_callsign_rx;
+
 uint8_t commands_handle_command(const __xdata command_t *cmd, uint8_t len, __xdata command_t *reply) {
 	uint8_t reply_length;
 	#if RADIO_RANGING_RESPONDER == 1
@@ -37,7 +39,6 @@ uint8_t commands_handle_command(const __xdata command_t *cmd, uint8_t len, __xda
 	__xdata msg_data_t *reply_data;
 
 	__xdata radio_callsign_t *olst_callsign;
-	__xdata radio_callsign_t olst_callsign_rx;
 
 	// Initialize the reply header
 	reply->header.hwid = hwid_flash;
@@ -104,21 +105,25 @@ uint8_t commands_handle_command(const __xdata command_t *cmd, uint8_t len, __xda
 		break;
 
 		case radio_msg_set_callsign:
-			reply->header.command = common_msg_ack;
-			olst_callsign = (__xdata radio_callsign_t *) cmd->data;
+			if (len < sizeof(cmd->header) + sizeof(*olst_callsign)) {
+				reply->header.command = common_msg_nack;
+			} else {
+				reply->header.command = common_msg_ack;
+				olst_callsign = (__xdata radio_callsign_t *) cmd->data;
 
-			memsetx((__xdata char *) olst_callsign_rx, 0, sizeof(*olst_callsign));
-			memcpyx(	(__xdata void *) &olst_callsign_rx,
-				(__xdata void *) olst_callsign,
-				sizeof(*olst_callsign));
+				memsetx((__xdata char *) &olst_callsign_rx, 0, sizeof(*olst_callsign));
+				memcpyx((__xdata void *) &olst_callsign_rx,
+					(__xdata void *) olst_callsign,
+					sizeof(*olst_callsign));
+			}
 		break;
 
 		case radio_msg_get_callsign:
 			reply->header.command = radio_msg_callsign;
 			olst_callsign = (__xdata radio_callsign_t *) reply->data;
 
-			memcpyx(	(__xdata void *) olst_callsign,
-				(__xdata void *) olst_callsign_rx,
+			memcpyx((__xdata void *) olst_callsign,
+				(__xdata void *) &olst_callsign_rx,
 				sizeof(*olst_callsign));
 
 			reply_length += sizeof(*olst_callsign);

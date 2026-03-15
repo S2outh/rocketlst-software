@@ -52,6 +52,26 @@ __xdata uint32_t radio_packets_rejected_other;
 
 volatile __bit rf_mode_tx = 0;  // controls whether the rftxrx ISR is transmitting or receiving
 
+#ifndef BOOTLOADER
+static __bit radio_tx_timed_out(uint32_t start_seconds, uint16_t start_milliseconds) {
+	uint32_t now_seconds;
+	uint16_t now_milliseconds;
+
+	__critical {
+		now_seconds = rtc_seconds;
+		now_milliseconds = rtc_milliseconds;
+	}
+
+	if (now_seconds == start_seconds) {
+		return (now_milliseconds - start_milliseconds) >= RADIO_TX_TIMEOUT_MS;
+	}
+	if (now_seconds == start_seconds + 1) {
+		return ((1000 - start_milliseconds) + now_milliseconds) >= RADIO_TX_TIMEOUT_MS;
+	}
+	return 1;
+}
+#endif
+
 void radio_set_modes(uint8_t rx_mode, uint8_t tx_mode) {
   // Get register sets from board-specific functionality
 	radio_mode_rx = rx_mode;
@@ -326,6 +346,12 @@ void radio_send_packet(const __xdata command_t* cmd, uint8_t len,
 	__xdata rf_message_footer_t *footer;
 	uint8_t rf_extras;
 	uint8_t rf_msg_len;
+	__bit tx_failed;
+	#ifndef BOOTLOADER
+	uint32_t tx_start_seconds;
+	uint16_t tx_start_milliseconds;
+	#endif
+	tx_failed = 0;
 	#ifndef BOOTLOADER
 	if (precise_timing) {
 		// Enable the timer interrupt now. The interrupt will send STX
@@ -403,6 +429,12 @@ void radio_send_packet(const __xdata command_t* cmd, uint8_t len,
 	// Start transmitting now if we aren't using the timer interrupt
 	// to control the transmit time
 	rf_mode_tx = 1;
+	#ifndef BOOTLOADER
+	__critical {
+		tx_start_seconds = rtc_seconds;
+		tx_start_milliseconds = rtc_milliseconds;
+	}
+	#endif
 	#ifdef BOOTLOADER
 	RFST = RFST_STX;
 	#else
@@ -411,8 +443,22 @@ void radio_send_packet(const __xdata command_t* cmd, uint8_t len,
 	}
 	#endif
 
+	#ifndef BOOTLOADER
+	while (rf_mode_tx && !radio_tx_timed_out(tx_start_seconds, tx_start_milliseconds));
+	if (rf_mode_tx) {
+		IEN2 &= ~IEN2_RFIE;
+		RFST = RFST_SIDLE;
+		dma_abort(dma_channel_rf);
+		rf_mode_tx = 0;
+		tx_failed = 1;
+		radio_packets_rejected_other++;
+	}
+	#else
 	while(rf_mode_tx); // Block until TX complete
+	#endif
 
 	radio_listen();
-	radio_packets_sent++;
+	if (!tx_failed) {
+		radio_packets_sent++;
+	}
 }

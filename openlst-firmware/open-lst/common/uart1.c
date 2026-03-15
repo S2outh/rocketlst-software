@@ -38,6 +38,22 @@ static uint8_t __data rx_buffer_offset;
 static uint8_t __xdata rx_buffer[UART1_RX_BUFFERS][ESP_MAX_PAYLOAD];
 static uint8_t __xdata tx_buffer[ESP_MAX_PAYLOAD];
 
+static uint8_t uart1_buffers_full(void) {
+	uint8_t i;
+	for (i = 0; i < UART1_RX_BUFFERS; i++) {
+		if (!rx_buffer_ready[i]) {
+			return 0;
+		}
+	}
+	return 1;
+}
+
+static void uart1_update_flow_ctrl(void) {
+	#if defined(CONFIG_UART1_USE_FLOW_CTRL)
+	CONFIG_UART1_FLOW_PIN = uart1_buffers_full() ? RTS_WAIT : RTS_OK;
+	#endif
+}
+
 #if UART1_ENABLED == 1
 void uart1_init(void) {
 	uint8_t b;
@@ -117,6 +133,7 @@ uint8_t uart1_get_message(__xdata uint8_t *buf) {
 			memcpyx(buf, rx_buffer[i], len);
 			// Release the buffer
 			rx_buffer_ready[i] = 0;
+			uart1_update_flow_ctrl();
 			return len;
 		}
 	}
@@ -199,13 +216,15 @@ void uart1_rx_isr() __interrupt (URX1_VECTOR) __using (2) {
 			} else {
 				// Find a free buffer
 				rx_active_buffer = 0;
-				while (rx_buffer_ready[rx_active_buffer]) {
+				while (rx_active_buffer < UART1_RX_BUFFERS &&
+				       rx_buffer_ready[rx_active_buffer]) {
 					rx_active_buffer++;
 				}
 				if (rx_active_buffer >= UART1_RX_BUFFERS) {
 					// No free buffers, just skip this packet
 					rx_active_buffer = 0;
 					rx_esp_state = wait_for_start0;
+					uart1_update_flow_ctrl();
 				} else {
 					rx_buffer_len[rx_active_buffer] = c;
 					rx_buffer_offset = 0;
@@ -221,6 +240,7 @@ void uart1_rx_isr() __interrupt (URX1_VECTOR) __using (2) {
 				rx_buffer_ready[rx_active_buffer] = 1;
 				rx_esp_state = wait_for_start0;
 				uart1_rx_count++;
+				uart1_update_flow_ctrl();
 			}
 			break;
 	}

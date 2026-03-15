@@ -298,6 +298,11 @@
 #define MAX_RX_TICKS 50
 #endif
 
+#ifndef RADIO_TX_TIMEOUT_MS
+// Abort a stuck RF transmission before the main loop misses the watchdog.
+#define RADIO_TX_TIMEOUT_MS 250
+#endif
+
 // These are the default radio modes
 #ifndef BOARD_RF_SETTINGS
 typedef enum {
