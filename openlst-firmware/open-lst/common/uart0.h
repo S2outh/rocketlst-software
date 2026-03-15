@@ -20,7 +20,7 @@
 #include <cc1110.h>
 #include <stdint.h>
 
-#ifndef UART1_RX_BUFFERS
+#ifndef UART0_RX_BUFFERS
 // By default, UART0 is the "low speed" interface
 // for simple command and response workflows and
 // only has a single buffer.

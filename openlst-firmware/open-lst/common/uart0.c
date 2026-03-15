@@ -179,7 +179,8 @@ void uart0_rx_isr() __interrupt (URX0_VECTOR) __using (3) {
 			} else {
 				// Find a free buffer
 				rx_active_buffer = 0;
-				while (rx_buffer_ready[rx_active_buffer]) {
+				while (rx_active_buffer < UART0_RX_BUFFERS &&
+				       rx_buffer_ready[rx_active_buffer]) {
 					rx_active_buffer++;
 				}
 				if (rx_active_buffer >= UART0_RX_BUFFERS) {

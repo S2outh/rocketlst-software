@@ -29,14 +29,32 @@
 #include "stringx.h"
 
 volatile __data uint32_t uart1_rx_count;
+volatile __data uint16_t uart1_rx_dropped;
 
 static esp_state_t __data rx_esp_state;
 static uint8_t __data rx_buffer_ready[UART1_RX_BUFFERS];
 static uint8_t __data rx_buffer_len[UART1_RX_BUFFERS];
 static uint8_t __data rx_active_buffer;
 static uint8_t __data rx_buffer_offset;
+static volatile __bit uart1_drop_pending;
 static uint8_t __xdata rx_buffer[UART1_RX_BUFFERS][ESP_MAX_PAYLOAD];
 static uint8_t __xdata tx_buffer[ESP_MAX_PAYLOAD];
+
+static uint8_t uart1_buffers_full(void) {
+	uint8_t i;
+	for (i = 0; i < UART1_RX_BUFFERS; i++) {
+		if (!rx_buffer_ready[i]) {
+			return 0;
+		}
+	}
+	return 1;
+}
+
+static void uart1_update_flow_ctrl(void) {
+	#if defined(CONFIG_UART1_USE_FLOW_CTRL)
+	CONFIG_UART1_FLOW_PIN = uart1_buffers_full() ? RTS_WAIT : RTS_OK;
+	#endif
+}
 
 #if UART1_ENABLED == 1
 void uart1_init(void) {
@@ -44,6 +62,8 @@ void uart1_init(void) {
 
 	// Initialize the receive counter
 	uart1_rx_count = 0;
+	uart1_rx_dropped = 0;
+	uart1_drop_pending = 0;
 
 	// Give USART1 priority on port 2
 	// USART0 defaults to this port so this is necessary
@@ -117,11 +137,21 @@ uint8_t uart1_get_message(__xdata uint8_t *buf) {
 			memcpyx(buf, rx_buffer[i], len);
 			// Release the buffer
 			rx_buffer_ready[i] = 0;
+			uart1_update_flow_ctrl();
 			return len;
 		}
 	}
 	// No finished buffers found
 	return 0;
+}
+
+void uart1_report_status(void) {
+	#if UART1_DEBUG_PRINTS == 1
+	if (uart1_drop_pending) {
+		uart1_drop_pending = 0;
+		dprintf1("UART1_RX_DROP");
+	}
+	#endif
 }
 
 void uart1_put(char c) {
@@ -199,13 +229,17 @@ void uart1_rx_isr() __interrupt (URX1_VECTOR) __using (2) {
 			} else {
 				// Find a free buffer
 				rx_active_buffer = 0;
-				while (rx_buffer_ready[rx_active_buffer]) {
+				while (rx_active_buffer < UART1_RX_BUFFERS &&
+				       rx_buffer_ready[rx_active_buffer]) {
 					rx_active_buffer++;
 				}
 				if (rx_active_buffer >= UART1_RX_BUFFERS) {
 					// No free buffers, just skip this packet
 					rx_active_buffer = 0;
 					rx_esp_state = wait_for_start0;
+					uart1_rx_dropped++;
+					uart1_drop_pending = 1;
+					uart1_update_flow_ctrl();
 				} else {
 					rx_buffer_len[rx_active_buffer] = c;
 					rx_buffer_offset = 0;
@@ -221,6 +255,7 @@ void uart1_rx_isr() __interrupt (URX1_VECTOR) __using (2) {
 				rx_buffer_ready[rx_active_buffer] = 1;
 				rx_esp_state = wait_for_start0;
 				uart1_rx_count++;
+				uart1_update_flow_ctrl();
 			}
 			break;
 	}

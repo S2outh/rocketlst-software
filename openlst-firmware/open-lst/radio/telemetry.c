@@ -69,5 +69,9 @@ void update_telemetry(void) {
 	telemetry.packets_rejected_checksum = radio_packets_rejected_checksum;
 	telemetry.packets_rejected_reserved = radio_packets_rejected_reserved;
 	telemetry.packets_rejected_other = radio_packets_rejected_other;
+	telemetry.reserved0 = uart1_rx_dropped;
+	telemetry.reserved1 = radio_tx_timeout_count;
+	telemetry.custom0 = radio_rx_rejected_short;
+	telemetry.custom1 = radio_rx_rejected_too_long;
 
 }
