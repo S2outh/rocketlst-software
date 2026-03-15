@@ -7,22 +7,18 @@
 
 mod macros;
 mod ground_tm_defs;
-mod nats;
 
 use core::{convert::Infallible, net::SocketAddr};
 
-use cortex_m::peripheral::SCB;
-
 use defmt::*;
 use embassy_executor::Spawner;
+use embassy_nats::{self, UserPwdAuthenticator};
 use embassy_net::{Stack, StackResources, dns::DnsQueryType, tcp::{self, TcpSocket}};
 use embassy_stm32::{Config, bind_interrupts, eth::{self, Ethernet, GenericPhy, PacketQueue, Sma}, mode::Async, peripherals::{ETH, ETH_SMA, IWDG1, RNG, USART2}, rcc, rng::{self, Rng}, usart::{self, Uart, UartTx}, wdg::IndependentWatchdog};
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::{Channel, DynamicReceiver, DynamicSender}};
 use embassy_time::{Duration, Instant, Ticker, Timer};
 use openlst_driver::{lst_receiver::{LSTMessage, LSTReceiver, LSTTelemetry}, lst_sender::{LSTCmd, LSTSender}};
 use static_cell::StaticCell;
-
-use crate::nats::{NatsCon, NatsRunner, NatsStack};
 
 use {defmt_rtt as _, panic_probe as _};
 
@@ -41,7 +37,7 @@ const HEAP_KB: usize = 64;
 #[global_allocator]
 static ALLOCATOR: emballoc::Allocator<{HEAP_KB * 1024}> = emballoc::Allocator::new();
 extern crate alloc;
-use alloc::vec::Vec;
+use alloc::{string::String, vec::Vec};
 
 // lst setup
 const OPENLST_HWID: u16 = 0x2DEC;
@@ -74,9 +70,9 @@ static TCP_TX_BUF: StaticCell<[u8; TCP_TX_BUF_SIZE]> = StaticCell::new();
 const MAC_ADDR: [u8; 6] = [0x00, 0x00, 0xDE, 0xAD, 0xBE, 0xEF];
 
 // NATS
+static NATS_STORAGE: StaticCell<embassy_nats::Storage> = StaticCell::new();
 // const NATS_ADDR: &str = "10.42.0.1";
 const NATS_ADDR: &str = "nats.tichygames.de";
-static NATS_STACK: StaticCell<NatsStack<'static>> = StaticCell::new();
 
 type EthDevice = Ethernet<'static, ETH, GenericPhy<Sma<'static, ETH_SMA>>>;
 
@@ -161,18 +157,15 @@ async fn net_task(mut runner: embassy_net::Runner<'static, EthDevice>) -> ! {
 }
 
 #[embassy_executor::task]
-async fn nats_task(mut runner: NatsRunner<'static>) -> ! {
-    runner.run().await.unwrap_or_else(|_| SCB::sys_reset())
+async fn nats_task(mut runner: embassy_nats::Runner<'static, 'static, UserPwdAuthenticator>) -> ! {
+    runner.run().await
 }
 
 #[embassy_executor::task]
-async fn sender_task(mut nats_client: NatsCon<'static>, receiver: DynamicReceiver<'static, SerializedInfo>) {
+async fn sender_task(mut nats_client: embassy_nats::Client<'static>, receiver: DynamicReceiver<'static, SerializedInfo>) {
     loop {
         let (address, bytes) = receiver.receive().await;
-        if let Err(e) = nats_client.publish(address, bytes).await {
-            error!("lost connection to NATS server: {:?}", e);
-            SCB::sys_reset();
-        }
+        nats_client.publish(String::from(address), bytes).await;
     }
 }
 
@@ -326,7 +319,7 @@ async fn main(spawner: Spawner) {
     info!("Network initialized");
 
     // Initizlize Nats socket
-    let client = TcpSocket::new(stack, TCP_RX_BUF.init([0; _]), TCP_TX_BUF.init([0; _]));
+    let socket = TcpSocket::new(stack, TCP_RX_BUF.init([0; _]), TCP_TX_BUF.init([0; _]));
 
     // resolve addr
     let socket_addr = loop {
@@ -338,17 +331,11 @@ async fn main(spawner: Spawner) {
             }
         }
     };
-    let nats = NATS_STACK.init(NatsStack::new(client, socket_addr));
+
+    let nats_storage = NATS_STORAGE.init(embassy_nats::Storage::new());
 
     // nats connection
-    let (nats_client, nats_runner) = match nats.connect_with_default()
-        .await.map_err(GSTError::ConnectNATS) {
-        Ok(nats_stack) => {
-            info!("NATS succesfully connected to NATS server");
-            nats_stack
-        },
-        Err(e) => defmt::panic!("Could not connect to NATS server: {}", Debug2Format(&e)),
-    };
+    let (client, runner) = embassy_nats::new_with_user_pwd("nats", "nats", socket_addr, socket, nats_storage);
 
     // Initialize beacons
     let mut lst_beacon = LSTBeacon::new();
@@ -362,8 +349,8 @@ async fn main(spawner: Spawner) {
     // launch local lst periodic telemetry request
     spawner.must_spawn(telemetry_request_thread(lst_tx));
     // launch nats sending thread
-    spawner.must_spawn(sender_task(nats_client, channel.dyn_receiver()));
-    spawner.must_spawn(nats_task(nats_runner));
+    spawner.must_spawn(sender_task(client, channel.dyn_receiver()));
+    spawner.must_spawn(nats_task(runner));
 
     // receiving main loop
     loop {

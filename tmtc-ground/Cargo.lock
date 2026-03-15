@@ -305,6 +305,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "embassy-nats"
+version = "0.1.0"
+source = "git+https://github.com/S2outh/embassy-nats.git#ea0a99ae1575f4465f0920bcd6efcb7396f2582c"
+dependencies = [
+ "cortex-m",
+ "cortex-m-rt",
+ "defmt 1.0.1",
+ "defmt-rtt",
+ "embassy-futures",
+ "embassy-net",
+ "embassy-sync",
+ "embedded-io-async 0.7.0",
+ "panic-probe",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "embassy-net"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -899,7 +917,7 @@ dependencies = [
 [[package]]
 name = "south-common"
 version = "3.0.0"
-source = "git+https://github.com/S2outh/south-common.git#f975908311b0bfb01592903be3110dc7d42ea57a"
+source = "git+https://github.com/S2outh/south-common.git#abf9b4e60bff3f921ceb87f904b8627edeee9001"
 dependencies = [
  "bitflags 2.11.0",
  "libm",
@@ -1024,6 +1042,7 @@ dependencies = [
  "emballoc",
  "embassy-executor",
  "embassy-futures",
+ "embassy-nats",
  "embassy-net",
  "embassy-stm32",
  "embassy-sync",

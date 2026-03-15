@@ -27,6 +27,8 @@ south-common = { git = "https://github.com/S2outh/south-common.git", features = 
 
 openlst-driver = { git = "https://github.com/S2outh/RocketLST-software.git", features = ["defmt"] }
 
+embassy-nats = { git = "https://github.com/S2outh/embassy-nats.git" }
+
 emballoc = "0.3.0"
 paste = "1.0.15"
 
