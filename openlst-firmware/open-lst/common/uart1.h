@@ -35,11 +35,13 @@ void uart1_rx_isr() __interrupt (URX1_VECTOR) __using (2);
 void uart1_init(void);
 uint8_t uart1_get_message(__xdata uint8_t *buf);
 void uart1_send_message(const __xdata uint8_t *msg, uint8_t len);
+void uart1_report_status(void);
 
 // TODO: better
 void dprintf1(const char *msg);
 // void dprintf2(char * msg, uint8_t val);
 
 extern volatile __data uint32_t uart1_rx_count;
+extern volatile __data uint16_t uart1_rx_dropped;
 
 #endif

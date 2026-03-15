@@ -29,12 +29,14 @@
 #include "stringx.h"
 
 volatile __data uint32_t uart1_rx_count;
+volatile __data uint16_t uart1_rx_dropped;
 
 static esp_state_t __data rx_esp_state;
 static uint8_t __data rx_buffer_ready[UART1_RX_BUFFERS];
 static uint8_t __data rx_buffer_len[UART1_RX_BUFFERS];
 static uint8_t __data rx_active_buffer;
 static uint8_t __data rx_buffer_offset;
+static volatile __bit uart1_drop_pending;
 static uint8_t __xdata rx_buffer[UART1_RX_BUFFERS][ESP_MAX_PAYLOAD];
 static uint8_t __xdata tx_buffer[ESP_MAX_PAYLOAD];
 
@@ -60,6 +62,8 @@ void uart1_init(void) {
 
 	// Initialize the receive counter
 	uart1_rx_count = 0;
+	uart1_rx_dropped = 0;
+	uart1_drop_pending = 0;
 
 	// Give USART1 priority on port 2
 	// USART0 defaults to this port so this is necessary
@@ -139,6 +143,15 @@ uint8_t uart1_get_message(__xdata uint8_t *buf) {
 	}
 	// No finished buffers found
 	return 0;
+}
+
+void uart1_report_status(void) {
+	#if UART1_DEBUG_PRINTS == 1
+	if (uart1_drop_pending) {
+		uart1_drop_pending = 0;
+		dprintf1("UART1_RX_DROP");
+	}
+	#endif
 }
 
 void uart1_put(char c) {
@@ -224,6 +237,8 @@ void uart1_rx_isr() __interrupt (URX1_VECTOR) __using (2) {
 					// No free buffers, just skip this packet
 					rx_active_buffer = 0;
 					rx_esp_state = wait_for_start0;
+					uart1_rx_dropped++;
+					uart1_drop_pending = 1;
 					uart1_update_flow_ctrl();
 				} else {
 					rx_buffer_len[rx_active_buffer] = c;

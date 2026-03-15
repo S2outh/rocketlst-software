@@ -303,6 +303,11 @@
 #define RADIO_TX_TIMEOUT_MS 250
 #endif
 
+#ifndef UART1_DEBUG_PRINTS
+// Emit ASCII debug packets on UART1 for rare fault conditions.
+#define UART1_DEBUG_PRINTS 1
+#endif
+
 // These are the default radio modes
 #ifndef BOARD_RF_SETTINGS
 typedef enum {

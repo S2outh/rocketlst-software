@@ -21,6 +21,7 @@
 #include "dma.h"
 #include "radio.h"
 #include "stringx.h"
+#include "uart1.h"
 
 #ifndef BOOTLOADER
 #include "timers.h"
@@ -71,6 +72,14 @@ static __bit radio_tx_timed_out(uint32_t start_seconds, uint16_t start_milliseco
 	return 1;
 }
 #endif
+
+static void radio_debug_print(const char *msg) {
+	#if UART1_DEBUG_PRINTS == 1
+	dprintf1(msg);
+	#else
+	msg;
+	#endif
+}
 
 void radio_set_modes(uint8_t rx_mode, uint8_t tx_mode) {
   // Get register sets from board-specific functionality
@@ -215,6 +224,8 @@ uint8_t radio_get_message(__xdata command_t *cmd, uint8_t *uart_sel) {
 		// If not just drop it
 		radio_packets_rejected_other++;
 		rf_rx_complete = 0;
+		radio_listen();
+		radio_debug_print("RF_RX_SHORT");
 		return 0;
 	}
 	// The footer is at the end of the message
@@ -228,6 +239,13 @@ uint8_t radio_get_message(__xdata command_t *cmd, uint8_t *uart_sel) {
 	             sizeof(rf_rx_buffer.header.flags) -  // The flags byte is not passed through
 	             sizeof(*footer) +  // The CRC in the footer is dropped
 	             sizeof(footer->hwid);  // However the HWID is included (moved to the beginning)
+	if (msg_length > sizeof(*cmd)) {
+		radio_packets_rejected_other++;
+		rf_rx_complete = 0;
+		radio_listen();
+		radio_debug_print("RF_RX_TOO_LONG");
+		return 0;
+	}
 	// Now copy the message to the cmd struct. This will include
 	// the length and flags bytes at the beginning. These get overwritten
 	// later.
@@ -370,6 +388,7 @@ void radio_send_packet(const __xdata command_t* cmd, uint8_t len,
 	rf_extras = sizeof(*footer) - sizeof(rf_tx_buffer.header.length);
 	if (len > RF_BUFFER_SIZE - rf_extras) {
 		// TODO logging?
+		radio_debug_print("RF_TX_TOO_LONG");
 		return;
 	}
 	rf_msg_len = len + rf_extras;
@@ -452,6 +471,7 @@ void radio_send_packet(const __xdata command_t* cmd, uint8_t len,
 		rf_mode_tx = 0;
 		tx_failed = 1;
 		radio_packets_rejected_other++;
+		radio_debug_print("RF_TX_TIMEOUT");
 	}
 	#else
 	while(rf_mode_tx); // Block until TX complete
