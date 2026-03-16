@@ -157,7 +157,7 @@ async fn net_task(mut runner: embassy_net::Runner<'static, EthDevice>) -> ! {
 }
 
 #[embassy_executor::task]
-async fn nats_task(mut runner: embassy_nats::Runner<'static, 'static, UserPwdAuthenticator>) -> ! {
+async fn nats_task(mut runner: embassy_nats::Runner<'static, UserPwdAuthenticator>) -> ! {
     runner.run().await
 }
 
