@@ -24,7 +24,7 @@ use {defmt_rtt as _, panic_probe as _};
 
 use south_common::{
     beacons::{LSTBeacon, EPSBeacon, HighRateUpperSensorBeacon, LowRateUpperSensorBeacon, LowerSensorBeacon},
-    tmtc_system::{Beacon, ParseError, ground_tm::{Serializer, SerializableTMValue}}
+    chell::{Beacon, ParseError, ground_tm::{Serializer, SerializableChellValue}}
 };
 
 // General setup stuff
@@ -315,7 +315,6 @@ async fn main(spawner: Spawner) {
 
     stack.wait_config_up().await;
 
-    info!("Stack initialized");
     info!("Network initialized");
 
     // Initizlize Nats socket

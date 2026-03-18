@@ -84,6 +84,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
+name = "chell"
+version = "5.0.1"
+source = "git+https://github.com/S2outh/chell-sys.git#bedf7fcbcd76d59cdd9187214cec42df8423df0f"
+dependencies = [
+ "chell-macros",
+ "serde",
+]
+
+[[package]]
+name = "chell-macros"
+version = "0.1.0"
+source = "git+https://github.com/S2outh/chell-sys.git#bedf7fcbcd76d59cdd9187214cec42df8423df0f"
+dependencies = [
+ "heck",
+ "proc-macro2",
+ "quote",
+ "serde",
+ "serde_json",
+ "syn 2.0.117",
+]
+
+[[package]]
 name = "cortex-m"
 version = "0.7.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -916,15 +938,16 @@ dependencies = [
 
 [[package]]
 name = "south-common"
-version = "3.0.0"
-source = "git+https://github.com/S2outh/south-common.git#abf9b4e60bff3f921ceb87f904b8627edeee9001"
+version = "4.0.0"
+source = "git+https://github.com/S2outh/south-common.git#804b52ea6599c02752fb0b6fb249d0cc027e3be2"
 dependencies = [
  "bitflags 2.11.0",
+ "chell",
  "libm",
  "lsm6dsv32",
  "serde",
+ "serde_json",
  "spin 0.10.0",
- "tmtc-system",
 ]
 
 [[package]]
@@ -1056,26 +1079,6 @@ dependencies = [
  "serde_json",
  "south-common",
  "static_cell",
-]
-
-[[package]]
-name = "tmtc-system"
-version = "4.7.0"
-source = "git+https://github.com/S2outh/telemetry-system.git#a856cf2c40eec91460fc2928f4e239d0a631d3ac"
-dependencies = [
- "serde",
- "tmtc-system-macros",
-]
-
-[[package]]
-name = "tmtc-system-macros"
-version = "0.1.0"
-source = "git+https://github.com/S2outh/telemetry-system.git#a856cf2c40eec91460fc2928f4e239d0a631d3ac"
-dependencies = [
- "heck",
- "proc-macro2",
- "quote",
- "syn 2.0.117",
 ]
 
 [[package]]

@@ -29,7 +29,7 @@ use south_common::{
     configs::can_config::CanPeriphConfig,
     definitions::telemetry as tm,
     definitions::internal_msgs,
-    tmtc_system::Beacon,
+    chell::Beacon,
 };
 
 use {defmt_rtt as _, panic_probe as _};
