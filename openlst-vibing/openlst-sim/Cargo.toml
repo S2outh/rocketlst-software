@@ -1,0 +1,8 @@
+[package]
+name = "openlst-sim"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+openlst-core = { path = "../openlst-core", features = ["std"] }

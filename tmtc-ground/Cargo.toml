@@ -11,7 +11,7 @@ embassy-sync = { version = "0.7.2", features = ["defmt"] }
 embassy-executor = { version = "0.9.1", features = ["arch-cortex-m", "executor-thread", "defmt"] }
 embassy-time = { version = "0.5.0", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-1_000_000"] }
 embassy-futures = { version = "0.1.2" }
-embassy-net = { version = "0.8.0", features = ["tcp", "dhcpv4", "defmt", "medium-ethernet", "proto-ipv6", "dns"] }
+embassy-net = { version = "0.8.0", features = ["tcp", "udp", "dhcpv4", "defmt", "medium-ethernet", "proto-ipv6", "dns"] }
 
 defmt = { version = "1.0", features = ["alloc"] }
 defmt-rtt = "1.1"

@@ -16,7 +16,7 @@ use embassy_nats::{self, UserPwdAuthenticator};
 use embassy_net::{Stack, StackResources, dns::DnsQueryType, tcp::{self, TcpSocket}};
 use embassy_stm32::{Config, bind_interrupts, eth::{self, Ethernet, GenericPhy, PacketQueue, Sma}, mode::Async, peripherals::{ETH, ETH_SMA, IWDG1, RNG, USART2}, rcc, rng::{self, Rng}, usart::{self, Uart, UartTx}, wdg::IndependentWatchdog};
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::{Channel, DynamicReceiver, DynamicSender}};
-use embassy_time::{Duration, Instant, Ticker, Timer};
+use embassy_time::{Duration, Instant, Ticker, Timer, with_timeout};
 use openlst_driver::{lst_receiver::{LSTMessage, LSTReceiver, LSTTelemetry}, lst_sender::{LSTCmd, LSTSender}};
 use static_cell::StaticCell;
 
@@ -73,6 +73,12 @@ const MAC_ADDR: [u8; 6] = [0x00, 0x00, 0xDE, 0xAD, 0xBE, 0xEF];
 static NATS_STORAGE: StaticCell<embassy_nats::Storage> = StaticCell::new();
 // const NATS_ADDR: &str = "10.42.0.1";
 const NATS_ADDR: &str = "nats.tichygames.de";
+static NATS_STACK: StaticCell<NatsStack<'static>> = StaticCell::new();
+
+// internet time sync (NTP)
+const NTP_ADDR: &str = "pool.ntp.org";
+const NTP_PORT: u16 = 123;
+const NTP_UNIX_EPOCH_DIFF_SECS: u64 = 2_208_988_800;
 
 type EthDevice = Ethernet<'static, ETH, GenericPhy<Sma<'static, ETH_SMA>>>;
 
@@ -97,7 +103,7 @@ fn get_rcc_config() -> rcc::Config {
     rcc_config.hsi = Some(rcc::HSIPrescaler::DIV1); // 64 MHz
     rcc_config.hsi48 = Some(Default::default()); // needed for RNG
 
-    // pll to multiply clock cycles
+    // pll to multiply clock cyclUART1_ENABLEDes
     rcc_config.pll1 = Some(rcc::Pll {
         source: rcc::PllSource::HSI,
         prediv: rcc::PllPreDiv::DIV8,   // 8 MHz
@@ -171,7 +177,7 @@ async fn sender_task(mut nats_client: embassy_nats::Client<'static>, receiver: D
 
 #[embassy_executor::task]
 async fn telemetry_request_thread(mut lst_sender: LSTSender<UartTx<'static, Async>>) {
-    const LST_TM_INTERVALL: Duration = Duration::from_secs(10);
+    const LST_TM_INTERVALL: Duration = Duration::from_secs(1);
     let mut ticker = Ticker::every(LST_TM_INTERVALL);
     loop {
         ticker.next().await;
@@ -181,9 +187,13 @@ async fn telemetry_request_thread(mut lst_sender: LSTSender<UartTx<'static, Asyn
     }
 }
 
-async fn local_lst_telemetry(nats_sender: &DynamicSender<'static, SerializedInfo>, tm: LSTTelemetry) {
+async fn local_lst_telemetry(
+    nats_sender: &DynamicSender<'static, SerializedInfo>,
+    tm: LSTTelemetry,
+    unix_time_offset_us: i64,
+) {
 
-    let timestamp = Instant::now().as_millis();
+    let timestamp = current_unix_time_micros(unix_time_offset_us);
 
     info!("Received local lst Telemetry at {}", timestamp);
 
@@ -205,6 +215,90 @@ async fn local_lst_telemetry(nats_sender: &DynamicSender<'static, SerializedInfo
         PacketsRejectedOther
     ));
 }
+
+fn current_unix_time_micros(offset: i64) -> u64 {
+    let now = Instant::now().as_micros();
+
+    if offset >= 0 {
+        now.saturating_add(offset as u64)
+    } else {
+        now.saturating_sub((-offset) as u64)
+    }
+}
+
+fn ntp_packet_to_unix_micros(packet: &[u8]) -> Option<u64> {
+    if packet.len() < 48 {
+        return None;
+    }
+
+    let secs = u32::from_be_bytes([packet[40], packet[41], packet[42], packet[43]]) as u64;
+    let frac = u32::from_be_bytes([packet[44], packet[45], packet[46], packet[47]]) as u64;
+    if secs < NTP_UNIX_EPOCH_DIFF_SECS {
+        return None;
+    }
+
+    let unix_secs = secs - NTP_UNIX_EPOCH_DIFF_SECS;
+    let micros_from_frac = (frac * 1_000_000) >> 32;
+    Some(unix_secs.saturating_mul(1_000_000).saturating_add(micros_from_frac))
+}
+
+async fn try_sync_internet_time(stack: &Stack<'_>) -> Result<i64, &'static str> {
+    let ips = stack
+        .dns_query(NTP_ADDR, DnsQueryType::A)
+        .await
+        .map_err(|_| "dns")?;
+    let Some(ip) = ips.first() else {
+        return Err("dns-empty");
+    };
+
+    let mut rx_meta = [PacketMetadata::EMPTY; 1];
+    let mut tx_meta = [PacketMetadata::EMPTY; 1];
+    let mut rx_buf = [0u8; 96];
+    let mut tx_buf = [0u8; 96];
+    let mut socket = UdpSocket::new(*stack, &mut rx_meta, &mut rx_buf, &mut tx_meta, &mut tx_buf);
+    socket.bind(0).map_err(|_| "bind")?;
+
+    let endpoint = IpEndpoint::new((*ip).into(), NTP_PORT);
+    let mut request = [0u8; 48];
+    request[0] = 0x23; // LI=0, VN=4, Mode=3 (client)
+
+    let t0 = Instant::now().as_micros();
+    socket.send_to(&request, endpoint).await.map_err(|_| "send")?;
+
+    let mut response = [0u8; 48];
+    let (len, _src) = with_timeout(Duration::from_secs(3), socket.recv_from(&mut response))
+        .await
+        .map_err(|_| "timeout")?
+        .map_err(|_| "recv")?;
+    let t1 = Instant::now().as_micros();
+
+    let Some(mut unix_us) = ntp_packet_to_unix_micros(&response[..len]) else {
+        return Err("parse");
+    };
+
+    unix_us = unix_us.saturating_add((t1 - t0) / 2);
+    let offset = unix_us as i64 - t1 as i64;
+    Ok(offset)
+}
+
+async fn sync_internet_time(stack: &Stack<'_>) -> i64 {
+    for attempt in 1..=10 {
+        match try_sync_internet_time(stack).await {
+            Ok(offset) => {
+                info!("internet time synced on attempt {}", attempt);
+                return offset;
+            }
+            Err(e) => {
+                warn!("internet time sync failed ({}): {}", attempt, e);
+                Timer::after_secs(2).await;
+            }
+        }
+    }
+
+    warn!("internet time unavailable, using monotonic fallback");
+    0
+}
+
 pub async fn parse_or_resolve(
        stack: &Stack<'_>,
        s: &str,
@@ -235,6 +329,7 @@ async fn main(spawner: Spawner) {
     // Lst Uart 0
     let mut uart_config = usart::Config::default();
     uart_config.baudrate = 115200;
+    
     let (uart_tx, uart_rx) = Uart::new(
         p.USART2,
         p.PA3,
@@ -247,7 +342,7 @@ async fn main(spawner: Spawner) {
     .unwrap()
     .split();
 
-    // Lst Uart 1
+    
     // let (uart_tx, uart_rx) = Uart::new(
     //     p.USART3,
     //     p.PD9,
@@ -317,6 +412,8 @@ async fn main(spawner: Spawner) {
 
     info!("Network initialized");
 
+    let unix_time_offset_us = sync_internet_time(&stack).await;
+
     // Initizlize Nats socket
     let socket = TcpSocket::new(stack, TCP_RX_BUF.init([0; _]), TCP_TX_BUF.init([0; _]));
 
@@ -364,7 +461,7 @@ async fn main(spawner: Spawner) {
                         parse_beacon!(data, lower_sensor_beacon, channel);
                     },
                     LSTMessage::Telem(tm) => {
-                        local_lst_telemetry(&channel.dyn_sender(), tm).await;
+                        local_lst_telemetry(&channel.dyn_sender(), tm, unix_time_offset_us).await;
                     },
                     LSTMessage::Ack => info!("LST Ack"),
                     LSTMessage::Nack => info!("LST Nack"),
