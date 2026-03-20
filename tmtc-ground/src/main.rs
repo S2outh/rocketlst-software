@@ -13,7 +13,7 @@ use core::{convert::Infallible, net::SocketAddr};
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_nats::{self, UserPwdAuthenticator};
-use embassy_net::{Stack, StackResources, dns::DnsQueryType, tcp::{self, TcpSocket}};
+use embassy_net::{Stack, StackResources, dns::DnsQueryType, tcp::{self, TcpSocket}, udp::{PacketMetadata, UdpSocket}, IpEndpoint};
 use embassy_stm32::{Config, bind_interrupts, eth::{self, Ethernet, GenericPhy, PacketQueue, Sma}, mode::Async, peripherals::{ETH, ETH_SMA, IWDG1, RNG, USART2}, rcc, rng::{self, Rng}, usart::{self, Uart, UartTx}, wdg::IndependentWatchdog};
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::{Channel, DynamicReceiver, DynamicSender}};
 use embassy_time::{Duration, Instant, Ticker, Timer, with_timeout};
@@ -24,7 +24,7 @@ use {defmt_rtt as _, panic_probe as _};
 
 use south_common::{
     beacons::{LSTBeacon, EPSBeacon, HighRateUpperSensorBeacon, LowRateUpperSensorBeacon, LowerSensorBeacon},
-    chell::{Beacon, ParseError, ground_tm::{Serializer, SerializableChellValue}}
+    chell::{Beacon, ParseError, ground::{Serializer, SerializableChellValue}}
 };
 
 // General setup stuff
@@ -73,7 +73,6 @@ const MAC_ADDR: [u8; 6] = [0x00, 0x00, 0xDE, 0xAD, 0xBE, 0xEF];
 static NATS_STORAGE: StaticCell<embassy_nats::Storage> = StaticCell::new();
 // const NATS_ADDR: &str = "10.42.0.1";
 const NATS_ADDR: &str = "nats.tichygames.de";
-static NATS_STACK: StaticCell<NatsStack<'static>> = StaticCell::new();
 
 // internet time sync (NTP)
 const NTP_ADDR: &str = "pool.ntp.org";
