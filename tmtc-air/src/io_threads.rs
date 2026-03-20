@@ -19,7 +19,7 @@ use portable_atomic::{AtomicU8, AtomicU64};
 use south_common::{
     beacons::LSTBeacon,
     definitions::{internal_msgs, telemetry as tm},
-    tmtc_system::{Beacon, BeaconOperationError, TMValue, TelemetryDefinition}, types::Timesync,
+    chell::{Beacon, BeaconOperationError, ChellValue, ChellDefinition}, types::Timesync,
 };
 
 /// Request a timesync frame every N seconds
