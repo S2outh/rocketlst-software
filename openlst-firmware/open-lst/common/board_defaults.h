@@ -88,6 +88,20 @@
 #define CONFIG_UART1_UCR ((1<<7) | (1<<1))
 #endif
 
+#ifndef UART1_TX_READY_SPIN_LIMIT
+// Bound UART1 TX waits so a wedged UART peripheral does not turn into a
+// watchdog reset.
+#define UART1_TX_READY_SPIN_LIMIT 65535
+#endif
+
+#ifndef UART1_TX_TIMEOUT_RECOVERY
+#if CONFIG_CAPABLE_RF_RX == 1
+#define UART1_TX_TIMEOUT_RECOVERY 1
+#else
+#define UART1_TX_TIMEOUT_RECOVERY 0
+#endif
+#endif
+
 #ifndef RADIO_MODE_DEFAULT_RX
 #define RADIO_MODE_DEFAULT_RX amateur_rf_mode_437_7k_FEC
 #endif
@@ -116,6 +130,18 @@
 // TODO: remove this requirement
 #ifndef RF_RANGING_UART
 #define RF_RANGING_UART 1
+#endif
+
+#ifndef ENABLE_RF_CS_IRQ
+// Carrier-sense interrupts are only used for telemetry and can flood the CPU
+// on a busy channel.
+#define ENABLE_RF_CS_IRQ 0
+#endif
+
+#ifndef ENABLE_RF_SFD_IRQ
+// Sync-word-detected interrupts are not required for normal RX handling and
+// can also flood the CPU on a noisy channel.
+#define ENABLE_RF_SFD_IRQ 0
 #endif
 
 // Automatically reboot unless commanded otherwise
@@ -296,6 +322,21 @@
 #ifndef MAX_RX_TICKS
 // Default of 5 seconds
 #define MAX_RX_TICKS 50
+#endif
+
+#ifndef RADIO_TX_TIMEOUT_MS
+// Abort a stuck RF transmission before the main loop misses the watchdog.
+#define RADIO_TX_TIMEOUT_MS 250
+#endif
+
+#ifndef UART1_DEBUG_PRINTS
+// Emit ASCII debug packets on UART1 for rare fault conditions.
+#define UART1_DEBUG_PRINTS 0
+#endif
+
+#ifndef BOOT_DEBUG_PRINTS
+// Emit a boot-time ASCII packet describing the last reset cause.
+#define BOOT_DEBUG_PRINTS 0
 #endif
 
 // These are the default radio modes

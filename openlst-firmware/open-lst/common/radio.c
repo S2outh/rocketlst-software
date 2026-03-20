@@ -21,6 +21,7 @@
 #include "dma.h"
 #include "radio.h"
 #include "stringx.h"
+#include "uart1.h"
 
 #ifndef BOOTLOADER
 #include "timers.h"
@@ -49,8 +50,39 @@ __xdata uint32_t radio_packets_good;
 __xdata uint32_t radio_packets_rejected_checksum;
 __xdata uint32_t radio_packets_rejected_reserved;
 __xdata uint32_t radio_packets_rejected_other;
+__xdata uint32_t radio_rx_rejected_short;
+__xdata uint32_t radio_rx_rejected_too_long;
+__xdata uint32_t radio_tx_timeout_count;
 
 volatile __bit rf_mode_tx = 0;  // controls whether the rftxrx ISR is transmitting or receiving
+
+#ifndef BOOTLOADER
+static __bit radio_tx_timed_out(uint32_t start_seconds, uint16_t start_milliseconds) {
+	uint32_t now_seconds;
+	uint16_t now_milliseconds;
+
+	__critical {
+		now_seconds = rtc_seconds;
+		now_milliseconds = rtc_milliseconds;
+	}
+
+	if (now_seconds == start_seconds) {
+		return (now_milliseconds - start_milliseconds) >= RADIO_TX_TIMEOUT_MS;
+	}
+	if (now_seconds == start_seconds + 1) {
+		return ((1000 - start_milliseconds) + now_milliseconds) >= RADIO_TX_TIMEOUT_MS;
+	}
+	return 1;
+}
+#endif
+
+static void radio_debug_print(const char *msg) {
+	#if UART1_DEBUG_PRINTS == 1
+	dprintf1(msg);
+	#else
+	msg;
+	#endif
+}
 
 void radio_set_modes(uint8_t rx_mode, uint8_t tx_mode) {
   // Get register sets from board-specific functionality
@@ -173,6 +205,9 @@ void radio_init(void) {
 	radio_packets_rejected_checksum = 0;
 	radio_packets_rejected_reserved = 0;
 	radio_packets_rejected_other = 0;
+	radio_rx_rejected_short = 0;
+	radio_rx_rejected_too_long = 0;
+	radio_tx_timeout_count = 0;
 	// TODO: default channel?
 	radio_set_modes(RADIO_MODE_DEFAULT_RX, RADIO_MODE_DEFAULT_TX);
 }
@@ -194,7 +229,10 @@ uint8_t radio_get_message(__xdata command_t *cmd, uint8_t *uart_sel) {
 	                    sizeof(footer->hwid)) {  // The HWID is already accounted for in the command header
 		// If not just drop it
 		radio_packets_rejected_other++;
+		radio_rx_rejected_short++;
 		rf_rx_complete = 0;
+    radio_debug_print("RF_RX_SHORT");
+		radio_listen();
 		return 0;
 	}
 	// The footer is at the end of the message
@@ -208,6 +246,14 @@ uint8_t radio_get_message(__xdata command_t *cmd, uint8_t *uart_sel) {
 	             sizeof(rf_rx_buffer.header.flags) -  // The flags byte is not passed through
 	             sizeof(*footer) +  // The CRC in the footer is dropped
 	             sizeof(footer->hwid);  // However the HWID is included (moved to the beginning)
+	if (msg_length > sizeof(*cmd)) {
+		radio_packets_rejected_other++;
+		radio_rx_rejected_too_long++;
+		rf_rx_complete = 0;
+		radio_listen();
+		radio_debug_print("RF_RX_TOO_LONG");
+		return 0;
+	}
 	// Now copy the message to the cmd struct. This will include
 	// the length and flags bytes at the beginning. These get overwritten
 	// later.
@@ -263,13 +309,17 @@ void rf_isr(void)  __interrupt (RF_VECTOR) __using (1) {
 		radio_last_lqi = LQI;
 		radio_last_freqest = *((int8_t *) &FREQEST);
 	}
+	#if ENABLE_RF_SFD_IRQ == 1
 	if (RFIF & RFIF_IM_SFD && !rf_mode_tx) {
 		// RX SFD - Packet reception begun (sync word detected)
 		rf_rx_underway = 1;
 	}
+	#endif
+	#if ENABLE_RF_CS_IRQ == 1
 	if (RFIF & RFIF_IM_CS) {
 		radio_cs_count++;
 	}
+	#endif
 	RFIF = 0;
 }
 
@@ -302,9 +352,15 @@ void radio_listen(void) {
 	RFIF = 0;
 
 	// Set the interrupt mask
+	#if ENABLE_RF_CS_IRQ == 1
 	RFIM = RFIM_IM_DONE |  // Packet received or transmitted
-	       RFIM_IM_SFD |   // Start of frame (sync word) detected
 	       RFIM_IM_CS;     // Carrier sense (for telemetry)
+	#elif ENABLE_RF_SFD_IRQ == 1
+	RFIM = RFIM_IM_DONE |  // Packet received or transmitted
+	       RFIM_IM_SFD;    // Start of frame (sync word) detected
+	#else
+	RFIM = RFIM_IM_DONE;   // Packet received or transmitted
+	#endif
 	IEN2 |= IEN2_RFIE;
 
 	rf_mode_tx = 0;
@@ -326,6 +382,12 @@ void radio_send_packet(const __xdata command_t* cmd, uint8_t len,
 	__xdata rf_message_footer_t *footer;
 	uint8_t rf_extras;
 	uint8_t rf_msg_len;
+	__bit tx_failed;
+	#ifndef BOOTLOADER
+	uint32_t tx_start_seconds;
+	uint16_t tx_start_milliseconds;
+	#endif
+	tx_failed = 0;
 	#ifndef BOOTLOADER
 	if (precise_timing) {
 		// Enable the timer interrupt now. The interrupt will send STX
@@ -344,6 +406,7 @@ void radio_send_packet(const __xdata command_t* cmd, uint8_t len,
 	rf_extras = sizeof(*footer) - sizeof(rf_tx_buffer.header.length);
 	if (len > RF_BUFFER_SIZE - rf_extras) {
 		// TODO logging?
+		radio_debug_print("RF_TX_TOO_LONG");
 		return;
 	}
 	rf_msg_len = len + rf_extras;
@@ -403,6 +466,12 @@ void radio_send_packet(const __xdata command_t* cmd, uint8_t len,
 	// Start transmitting now if we aren't using the timer interrupt
 	// to control the transmit time
 	rf_mode_tx = 1;
+	#ifndef BOOTLOADER
+	__critical {
+		tx_start_seconds = rtc_seconds;
+		tx_start_milliseconds = rtc_milliseconds;
+	}
+	#endif
 	#ifdef BOOTLOADER
 	RFST = RFST_STX;
 	#else
@@ -411,8 +480,31 @@ void radio_send_packet(const __xdata command_t* cmd, uint8_t len,
 	}
 	#endif
 
+	#ifndef BOOTLOADER
+	while (rf_mode_tx && !radio_tx_timed_out(tx_start_seconds, tx_start_milliseconds));
+	if (rf_mode_tx) {
+		IEN2 &= ~IEN2_RFIE;
+		RFST = RFST_SIDLE;
+		dma_abort(dma_channel_rf);
+		rf_mode_tx = 0;
+		tx_failed = 1;
+		radio_packets_rejected_other++;
+		radio_tx_timeout_count++;
+		radio_debug_print("RF_TX_TIMEOUT");
+	}
+	#else
 	while(rf_mode_tx); // Block until TX complete
+	#endif
 
+	#if CONFIG_CAPABLE_RF_RX == 1
 	radio_listen();
-	radio_packets_sent++;
+	#else
+	IEN2 &= ~IEN2_RFIE;
+	RFST = RFST_SIDLE;
+	rf_rx_underway = 0;
+	rf_rx_complete = 0;
+	#endif
+	if (!tx_failed) {
+		radio_packets_sent++;
+	}
 }

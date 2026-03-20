@@ -29,7 +29,7 @@ use south_common::{
     configs::can_config::CanPeriphConfig,
     definitions::telemetry as tm,
     definitions::internal_msgs,
-    tmtc_system::Beacon,
+    chell::Beacon,
 };
 
 use {defmt_rtt as _, panic_probe as _};
@@ -44,7 +44,7 @@ const STARTUP_DELAY: u64 = 1000;
 const OPENLST_HWID: u16 = 0x2DEC;
 const NUM_RECV_BEC: usize = 4;
 
-const LST_BEACON_INTERVAL: Duration = Duration::from_secs(10);
+const LST_BEACON_INTERVAL: Duration = Duration::from_secs(3);
 const EPS_BEACON_INTERVAL: Duration = Duration::from_secs(5);
 const HIGH_RATE_UPPER_BEACON_INTERVAL: Duration = Duration::from_millis(100);
 const LOW_RATE_UPPER_BEACON_INTERVAL: Duration = Duration::from_secs(1);
@@ -82,14 +82,14 @@ static S_RX_BUF: StaticCell<[u8; S_RX_BUF_SIZE]> = StaticCell::new();
 
 // bin can interrupts
 bind_interrupts!(struct Irqs {
-    //FDCAN1_IT0 => can::IT0InterruptHandler<FDCAN1>;
-    //FDCAN1_IT1 => can::IT1InterruptHandler<FDCAN1>;
+    FDCAN1_IT0 => can::IT0InterruptHandler<FDCAN1>;
+    FDCAN1_IT1 => can::IT1InterruptHandler<FDCAN1>;
 
     FDCAN2_IT0 => can::IT0InterruptHandler<FDCAN2>;
     FDCAN2_IT1 => can::IT1InterruptHandler<FDCAN2>;
 
-    //USART2 => usart::InterruptHandler<USART2>;
-    USART3 => usart::InterruptHandler<USART3>;
+    USART2 => usart::InterruptHandler<USART2>;
+    //USART3 => usart::InterruptHandler<USART3>;
 
     EXTI15_10 => exti::InterruptHandler<EXTI15_10>;
 });
@@ -164,10 +164,13 @@ async fn main(spawner: Spawner) {
     let mut watchdog = IndependentWatchdog::new(p.IWDG1, WATCHDOG_TIMEOUT_US);
     watchdog.unleash();
 
-    // can configuration
+    // can 1 configuration
     let mut can_configurator =
-    //    CanPeriphConfig::new(CanConfigurator::new(p.FDCAN1, p.PD0, p.PD1, Irqs));
         CanPeriphConfig::new(CanConfigurator::new(p.FDCAN2, p.PB5, p.PB6, Irqs));
+
+    // can 2 configuration
+    // let mut can_configurator =
+    //     CanPeriphConfig::new(CanConfigurator::new(p.FDCAN1, p.PD0, p.PD1, Irqs));
 
     can_configurator
         .add_receive_topic_range(tm::id_range())
@@ -181,36 +184,36 @@ async fn main(spawner: Spawner) {
     );
 
     // set can standby pin to low
-    // let _can_standby = Output::new(p.PD7, Level::Low, Speed::Low);
-    let _can_standby = Output::new(p.PB7, Level::Low, Speed::Low);
+    let _can_1_standby = Output::new(p.PB7, Level::Low, Speed::Low);
+    // let _can_2_standby = Output::new(p.PD7, Level::Low, Speed::Low);
 
     // -- Uart configuration
     let mut uart_config = usart::Config::default();
     uart_config.baudrate = 115200;
 
-    //let (uart_tx, uart_rx) = Uart::new(
-    //    p.USART2,
-    //    p.PA3,
-    //    p.PD5,
-    //    Irqs,
-    //    p.DMA1_CH1,
-    //    p.DMA1_CH2,
-    //    uart_config,
-    //)
-    //.unwrap()
-    //.split();
-
     let (uart_tx, uart_rx) = Uart::new(
-        p.USART3,
-        p.PD9,
-        p.PB10,
-        Irqs,
-        p.DMA1_CH1,
-        p.DMA1_CH2,
-        uart_config,
+       p.USART2,
+       p.PA3,
+       p.PD5,
+       Irqs,
+       p.DMA1_CH1,
+       p.DMA1_CH2,
+       uart_config,
     )
     .unwrap()
     .split();
+
+    // let (uart_tx, uart_rx) = Uart::new(
+    //     p.USART3,
+    //     p.PD9,
+    //     p.PB10,
+    //     Irqs,
+    //     p.DMA1_CH1,
+    //     p.DMA1_CH2,
+    //     uart_config,
+    // )
+    // .unwrap()
+    // .split();
 
     let lst_tx = LST.init(Mutex::new(LSTSender::new(uart_tx, OPENLST_HWID)));
     let lst_rx = LSTReceiver::new(uart_rx.into_ring_buffered(S_RX_BUF.init([0; _])));

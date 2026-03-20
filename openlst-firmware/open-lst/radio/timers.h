@@ -53,6 +53,8 @@ void t1_isr(void)  __interrupt (T1_VECTOR) __using (1);
 
 extern volatile __bit rtc_set;
 extern volatile __data uint32_t uptime;
+extern volatile __data uint32_t rtc_seconds;
+extern volatile __data uint16_t rtc_milliseconds;
 extern volatile __data uint16_t timer_count_ms;
 
 #endif

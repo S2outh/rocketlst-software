@@ -29,14 +29,43 @@
 #include "stringx.h"
 
 volatile __data uint32_t uart1_rx_count;
+volatile __data uint16_t uart1_rx_dropped;
+volatile __xdata uint32_t uart1_tx_blocked_packets;
 
 static esp_state_t __data rx_esp_state;
 static uint8_t __data rx_buffer_ready[UART1_RX_BUFFERS];
 static uint8_t __data rx_buffer_len[UART1_RX_BUFFERS];
 static uint8_t __data rx_active_buffer;
 static uint8_t __data rx_buffer_offset;
+static volatile __bit uart1_drop_pending;
+static volatile __bit uart1_tx_timeout_pending;
 static uint8_t __xdata rx_buffer[UART1_RX_BUFFERS][ESP_MAX_PAYLOAD];
 static uint8_t __xdata tx_buffer[ESP_MAX_PAYLOAD];
+
+static void uart1_recover_tx(void) {
+	IEN2 &= ~IEN2_UTX1IE;
+	U1BAUD = CONFIG_UART1_BAUD;
+	U1GCR = CONFIG_UART1_GCR;
+	U1CSR = (1<<7) | (1<<6);
+	U1UCR = CONFIG_UART1_UCR;
+	UTX1IF = 1;
+}
+
+static uint8_t uart1_buffers_full(void) {
+	uint8_t i;
+	for (i = 0; i < UART1_RX_BUFFERS; i++) {
+		if (!rx_buffer_ready[i]) {
+			return 0;
+		}
+	}
+	return 1;
+}
+
+static void uart1_update_flow_ctrl(void) {
+	#if defined(CONFIG_UART1_USE_FLOW_CTRL)
+	CONFIG_UART1_FLOW_PIN = uart1_buffers_full() ? RTS_WAIT : RTS_OK;
+	#endif
+}
 
 #if UART1_ENABLED == 1
 void uart1_init(void) {
@@ -44,6 +73,10 @@ void uart1_init(void) {
 
 	// Initialize the receive counter
 	uart1_rx_count = 0;
+	uart1_rx_dropped = 0;
+	uart1_tx_blocked_packets = 0;
+	uart1_drop_pending = 0;
+	uart1_tx_timeout_pending = 0;
 
 	// Give USART1 priority on port 2
 	// USART0 defaults to this port so this is necessary
@@ -117,6 +150,7 @@ uint8_t uart1_get_message(__xdata uint8_t *buf) {
 			memcpyx(buf, rx_buffer[i], len);
 			// Release the buffer
 			rx_buffer_ready[i] = 0;
+			uart1_update_flow_ctrl();
 			return len;
 		}
 	}
@@ -124,21 +158,76 @@ uint8_t uart1_get_message(__xdata uint8_t *buf) {
 	return 0;
 }
 
-void uart1_put(char c) {
-  while (!UTX1IF);
-  U1DBUF = c;
-  UTX1IF = 0;
+void uart1_report_status(void) {
+	#if UART1_DEBUG_PRINTS == 1
+	if (uart1_drop_pending) {
+		uart1_drop_pending = 0;
+		dprintf1("UART1_RX_DROP");
+	}
+	if (uart1_tx_timeout_pending) {
+		uart1_tx_timeout_pending = 0;
+		dprintf1("UART1_TX_TIMEOUT");
+	}
+	#endif
+}
+
+static uint8_t uart1_put(char c) {
+	#if UART1_TX_TIMEOUT_RECOVERY == 0
+	while (!UTX1IF);
+	U1DBUF = c;
+	UTX1IF = 0;
+	return 1;
+	#else
+	uint16_t wait;
+
+	wait = UART1_TX_READY_SPIN_LIMIT;
+	while (!UTX1IF && wait) {
+		wait--;
+	}
+	if (!UTX1IF) {
+		uart1_tx_blocked_packets++;
+		uart1_tx_timeout_pending = 1;
+		uart1_recover_tx();
+		return 0;
+	}
+	U1DBUF = c;
+	UTX1IF = 0;
+	return 1;
+	#endif
 }
 
 // TODO: use interrupts
-void uart1_send_message(const __xdata uint8_t *msg, uint8_t len) {
+uint8_t uart1_send_message(const __xdata uint8_t *msg, uint8_t len) {
 	// ESP header
-	uart1_put(ESP_START_BYTE_0);
-	uart1_put(ESP_START_BYTE_1);
-	uart1_put(len);
-	while (len--) {
-		uart1_put(*(msg++));
+	if (!uart1_put(ESP_START_BYTE_0)) {
+		return 0;
 	}
+	if (!uart1_put(ESP_START_BYTE_1)) {
+		return 0;
+	}
+	if (!uart1_put(len)) {
+		return 0;
+	}
+	while (len--) {
+		if (!uart1_put(*(msg++))) {
+			return 0;
+		}
+	}
+	return 1;
+}
+
+uint8_t uart1_try_send_message(const __xdata uint8_t *msg, uint8_t len) {
+	if (len < 1 || len > ESP_MAX_PAYLOAD) {
+		return 0;
+	}
+
+	if (!UTX1IF) {
+		__critical {
+			uart1_tx_blocked_packets++;
+		}
+		return 0;
+	}
+	return uart1_send_message(msg, len);
 }
 
 static __xdata command_t print_buf;
@@ -199,13 +288,17 @@ void uart1_rx_isr() __interrupt (URX1_VECTOR) __using (2) {
 			} else {
 				// Find a free buffer
 				rx_active_buffer = 0;
-				while (rx_buffer_ready[rx_active_buffer]) {
+				while (rx_active_buffer < UART1_RX_BUFFERS &&
+				       rx_buffer_ready[rx_active_buffer]) {
 					rx_active_buffer++;
 				}
 				if (rx_active_buffer >= UART1_RX_BUFFERS) {
 					// No free buffers, just skip this packet
 					rx_active_buffer = 0;
 					rx_esp_state = wait_for_start0;
+					uart1_rx_dropped++;
+					uart1_drop_pending = 1;
+					uart1_update_flow_ctrl();
 				} else {
 					rx_buffer_len[rx_active_buffer] = c;
 					rx_buffer_offset = 0;
@@ -221,6 +314,7 @@ void uart1_rx_isr() __interrupt (URX1_VECTOR) __using (2) {
 				rx_buffer_ready[rx_active_buffer] = 1;
 				rx_esp_state = wait_for_start0;
 				uart1_rx_count++;
+				uart1_update_flow_ctrl();
 			}
 			break;
 	}

@@ -19,7 +19,7 @@ use portable_atomic::{AtomicU8, AtomicU64};
 use south_common::{
     beacons::LSTBeacon,
     definitions::{internal_msgs, telemetry as tm},
-    tmtc_system::{Beacon, BeaconOperationError, TMValue, TelemetryDefinition}, types::Timesync,
+    chell::{Beacon, BeaconOperationError, ChellValue, ChellDefinition}, types::Timesync,
 };
 
 /// Request a timesync frame every N seconds
@@ -102,7 +102,7 @@ pub async fn lst_sender_thread(
         {
             let mut beacon = beacon.lock().await;
             let timestamp = TIME_REF.load(Ordering::Relaxed) + Instant::now().as_micros();
-            beacon.set_timestamp(timestamp / 1000);
+            beacon.set_timestamp(timestamp);
 
             debug!("sending beacon: {}", beacon.name());
 

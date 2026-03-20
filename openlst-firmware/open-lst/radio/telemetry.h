@@ -46,6 +46,7 @@ typedef struct {
 extern __xdata telemetry_t telemetry;
 
 void telemetry_init(void);
+void telemetry_set_reset_cause(uint8_t reset_cause);
 void update_telemetry(void);
 
 #endif

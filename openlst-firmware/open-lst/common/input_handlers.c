@@ -79,6 +79,7 @@ void input_handle_uart0_rx(void) {
 void input_handle_uart1_rx(void) {
 	uint8_t len;
 	uint8_t reply_len;
+	uart1_report_status();
 	len = uart1_get_message(buffer.msg);
 	if (len == 0) { // no messages
 		return;
@@ -135,7 +136,7 @@ void input_handle_rf_rx(void) {
 		// over the serial link
 		// TODO: respect the UART selection in flags
 		#if FORWARD_MESSAGES_RF == 1
-		uart1_send_message(buffer.msg, len);
+		uart1_try_send_message(buffer.msg, len);
 		#endif
 	}
 	return;

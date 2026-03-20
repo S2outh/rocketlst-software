@@ -25,16 +25,22 @@
 #include "uart1.h"
 
 __xdata telemetry_t telemetry;
+static volatile __data uint8_t telemetry_reset_cause;
 
 void telemetry_init(void) {
 	memsetx((__xdata void*) &telemetry, 0, sizeof(telemetry));
 	// This one is signed and we want the default to be
 	// -128dBm rather than 0dBm
 	telemetry.last_rssi = -128;
+	telemetry_reset_cause = 0;
+}
+
+void telemetry_set_reset_cause(uint8_t reset_cause) {
+	telemetry_reset_cause = reset_cause;
 }
 
 void update_telemetry(void) {
-	telemetry.reserved = 0;
+	telemetry.reserved = telemetry_reset_cause;
 	__critical {
 		telemetry.uptime = uptime;
 		telemetry.uart0_rx_count = uart0_rx_count;
@@ -69,5 +75,9 @@ void update_telemetry(void) {
 	telemetry.packets_rejected_checksum = radio_packets_rejected_checksum;
 	telemetry.packets_rejected_reserved = radio_packets_rejected_reserved;
 	telemetry.packets_rejected_other = radio_packets_rejected_other;
+	telemetry.reserved0 = uart1_rx_dropped;
+	telemetry.reserved1 = radio_tx_timeout_count + uart1_tx_blocked_packets;
+	telemetry.custom0 = radio_rx_rejected_short;
+	telemetry.custom1 = radio_rx_rejected_too_long;
 
 }

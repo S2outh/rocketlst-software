@@ -127,5 +127,8 @@ extern __xdata uint32_t radio_packets_good;
 extern __xdata uint32_t radio_packets_rejected_checksum;
 extern __xdata uint32_t radio_packets_rejected_reserved;
 extern __xdata uint32_t radio_packets_rejected_other;
+extern __xdata uint32_t radio_rx_rejected_short;
+extern __xdata uint32_t radio_rx_rejected_too_long;
+extern __xdata uint32_t radio_tx_timeout_count;
 
 #endif

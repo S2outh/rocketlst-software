@@ -1,0 +1,8 @@
+[alias]
+radio-cc1110 = "build -p openlst-radio --target cc1110-none-elf --features cc1110-lowlevel,cc1110-real-mmio"
+
+[target.cc1110-none-elf]
+rustflags = [
+  "-C",
+  "link-arg=-Topenlst-radio/linker/cc1110-template.ld",
+]

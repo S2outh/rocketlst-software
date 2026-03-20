@@ -25,6 +25,8 @@
 #define BOARD_HAS_RX_HOOK 1
 #define CONFIG_CAPABLE_RF_RX 0
 #define CONFIG_CAPABLE_RF_TX 1
+#define UART1_DEBUG_PRINTS 1
+#define BOOT_DEBUG_PRINTS 1
 
 // Disable UART0
 // #define UART0_ENABLED 0
@@ -39,14 +41,14 @@
 // https://www.ti.com/lit/ds/symlink/cc1110-cc1111.pdf?ts=1719502976799&ref_url=https%253A%252F%252Fwww.ti.com%252Fproduct%252FCC1110-CC1111%253Fbm-verify%253DAAQAAAAJ_____zIZcrRTZEtbfeo0gPeq_ygxBa76nETJvCLoGOwDVmlBrSts_Urld8DbDGqSqUCw_EW1NzGjBCJ-Iq9NfK6WWA369Xjjv6LITcyj3vj0Y2QV2jGuaTlGqWXEJWYrrTH3KrxpcYW8z3LxiuYmLwWVyGtY5hCujrZCW1z9VLzKT_gLnDblSR8vrklzyaj8tFGUK0W7mdP7z9BMvnwdJIdMj0Q4-9gXi7IFDn2sIa7TOqfen_zbGn-pKgs3SPhH1l51GDau40MP7kL3I00fQVwEq1oHoGAvO4sH-oikEJV32eRFki2A6cGvsJ4
 // Page 207
 //#define RF_PA_CONFIG     0x12 // -30dbm at CC
-#define RF_PA_CONFIG     0x0E // -20dbm, at CC
+//#define RF_PA_CONFIG     0x0E // -20dbm, at CC
 //#define RF_PA_CONFIG     0x1D // -15dbm, at CC
 //#define RF_PA_CONFIG     0x34 // -10dbm, at CC
 //#define RF_PA_CONFIG     0x2C // -5dbm, at CC
 //#define RF_PA_CONFIG     0x60 // 0dbm, at CC
 //#define RF_PA_CONFIG     0x84 // 5dbm, at CC
 //#define RF_PA_CONFIG     0xC8 // 7dbm, at CC
-//#define RF_PA_CONFIG     0xC0 // 10dbm, at CC
+#define RF_PA_CONFIG     0xC0 // 10dbm, at CC
 
 
 // # Frequency setting

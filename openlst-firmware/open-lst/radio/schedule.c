@@ -53,16 +53,18 @@ void schedule_handle_events(void) {
 	// Handle the 10Hz loop
 	if (timer_count_ms == 0) {
 		timer_count_ms = TIMER_COUNT_PERIOD;
-		update_telemetry();
-		// Assume that this will take < 100ms
-		// Othewise we may have some garbage samples
-		adc_start_sample();
-		// If we haven't recieved a packet in a while
-		// reset the receiver
-		if (++last_rx_ticks >= MAX_RX_TICKS) {
-			last_rx_ticks = 0;
-			radio_listen();
+			update_telemetry();
+			// Assume that this will take < 100ms
+			// Othewise we may have some garbage samples
+			adc_start_sample();
+			#if CONFIG_CAPABLE_RF_RX == 1
+			// If we haven't recieved a packet in a while
+			// reset the receiver
+			if (++last_rx_ticks >= MAX_RX_TICKS) {
+				last_rx_ticks = 0;
+				radio_listen();
+			}
+			#endif
 		}
-	}
 
 }
