@@ -101,6 +101,8 @@ impl<S: Read> LSTReceiver<S> {
                 }
             } else {
                 magic_pos = 0;
+                #[cfg(feature = "defmt")]
+                defmt::error!("dropped a byte");
             }
         }
     }
