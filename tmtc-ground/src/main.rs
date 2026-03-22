@@ -22,10 +22,13 @@ use static_cell::StaticCell;
 
 use {defmt_rtt as _, panic_probe as _};
 
-use south_common::{
-    beacons::{LSTBeacon, EPSBeacon, HighRateUpperSensorBeacon, LowRateUpperSensorBeacon, LowerSensorBeacon},
-    chell::{Beacon, ParseError, ground::{Serializer, SerializableChellValue}}
-};
+use south_common::chell::{Beacon, ParseError, ground::{Serializer, SerializableChellValue}};
+
+#[cfg(feature = "primary")]
+use south_common::beacons::{EPSBeacon, HighRateUpperSensorBeacon, LSTBeacon, LowRateUpperSensorBeacon, LowerSensorBeacon};
+
+#[cfg(feature = "secondary")]
+use south_common::beacons::SecondaryLstBeacon;
 
 // General setup stuff
 const WATCHDOG_TIMEOUT_US: u32 = 300_000;
@@ -433,11 +436,19 @@ async fn main(spawner: Spawner) {
     let (client, runner) = embassy_nats::new_with_user_pwd("nats", "nats", socket_addr, socket, nats_storage);
 
     // Initialize beacons
+    #[cfg(feature = "primary")]
     let mut lst_beacon = LSTBeacon::new();
+    #[cfg(feature = "primary")]
     let mut eps_beacon = EPSBeacon::new();
+    #[cfg(feature = "primary")]
     let mut high_rate_upper_beacon = HighRateUpperSensorBeacon::new();
+    #[cfg(feature = "primary")]
     let mut low_rate_upper_beacon = LowRateUpperSensorBeacon::new();
+    #[cfg(feature = "primary")]
     let mut lower_sensor_beacon = LowerSensorBeacon::new();
+
+    #[cfg(feature = "secondary")]
+    let mut secondary_lst_beacon = SecondaryLstBeacon::new();
 
     let channel = MSG.init(Channel::new());
 
@@ -453,11 +464,18 @@ async fn main(spawner: Spawner) {
             Ok(msg) => {
                 match msg {
                     LSTMessage::Relay(data) => {
-                        parse_beacon!(data, lst_beacon, channel, (packets_sent));
-                        parse_beacon!(data, eps_beacon, channel, (bat1_voltage));
-                        parse_beacon!(data, high_rate_upper_beacon, channel, (imu1_accel));
-                        parse_beacon!(data, low_rate_upper_beacon, channel, (gps_pos));
-                        parse_beacon!(data, lower_sensor_beacon, channel);
+                        #[cfg(feature = "primary")]
+                        {
+                            parse_beacon!(data, lst_beacon, channel, (packets_sent));
+                            parse_beacon!(data, eps_beacon, channel, (bat1_voltage));
+                            parse_beacon!(data, high_rate_upper_beacon, channel, (imu1_accel));
+                            parse_beacon!(data, low_rate_upper_beacon, channel, (gps_pos));
+                            parse_beacon!(data, lower_sensor_beacon, channel);
+                        }
+                        #[cfg(feature = "secondary")]
+                        {
+                            parse_beacon!(data, secondary_lst_beacon, channel);
+                        }
                     },
                     LSTMessage::Telem(tm) => {
                         local_lst_telemetry(&channel.dyn_sender(), tm, unix_time_offset_us).await;

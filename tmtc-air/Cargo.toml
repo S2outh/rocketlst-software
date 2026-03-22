@@ -3,6 +3,12 @@ name = "tmtc-lst-air"
 version = "1.1.0"
 edition = "2024"
 
+[features]
+default = [ "primary" ]
+
+primary = []
+secondary = []
+
 [dependencies]
 embassy-stm32 = { version = "0.5.0", features = [ "defmt", "time", "time-driver-any", "stm32h723vg", "memory-x", "unstable-pac", "exti"]  }
 embassy-sync = { version = "0.7.2", features = ["defmt"] }

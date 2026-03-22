@@ -22,15 +22,16 @@ use embassy_stm32::{
 };
 use embassy_time::{Duration, Timer};
 use south_common::{
-    beacons::{
-        EPSBeacon, HighRateUpperSensorBeacon, LSTBeacon, LowRateUpperSensorBeacon,
-        LowerSensorBeacon,
-    },
-    configs::can_config::CanPeriphConfig,
-    definitions::telemetry as tm,
-    definitions::internal_msgs,
     chell::Beacon,
+    configs::can_config::CanPeriphConfig,
+    definitions::{internal_msgs, telemetry as tm}
 };
+
+#[cfg(feature = "primary")]
+use south_common::beacons::{EPSBeacon, HighRateUpperSensorBeacon, LSTBeacon, LowRateUpperSensorBeacon, LowerSensorBeacon};
+
+#[cfg(feature = "secondary")]
+use south_common::beacons::SecondaryLstBeacon;
 
 use {defmt_rtt as _, panic_probe as _};
 
@@ -42,23 +43,39 @@ use openlst_driver::lst_sender::LSTSender;
 // General setup stuff
 const STARTUP_DELAY: u64 = 1000;
 const OPENLST_HWID: u16 = 0x2DEC;
-const NUM_RECV_BEC: usize = 4;
+const NUM_RECV_BEC: usize = if cfg!(feature = "primary") { 4 } else { 1 };
 
+#[cfg(feature = "primary")]
 const LST_BEACON_INTERVAL: Duration = Duration::from_secs(3);
+#[cfg(feature = "primary")]
 const EPS_BEACON_INTERVAL: Duration = Duration::from_secs(5);
+#[cfg(feature = "primary")]
 const HIGH_RATE_UPPER_BEACON_INTERVAL: Duration = Duration::from_millis(100);
+#[cfg(feature = "primary")]
 const LOW_RATE_UPPER_BEACON_INTERVAL: Duration = Duration::from_secs(1);
+#[cfg(feature = "primary")]
 const LOWER_SENSOR_INTERVAL: Duration = Duration::from_secs(1);
+
+#[cfg(feature = "secondary")]
+const SECONDARY_LST_BEACON_INTERVAL: Duration = Duration::from_secs(3);
 
 const WATCHDOG_TIMEOUT_US: u32 = 300_000;
 const WATCHDOG_PETTING_INTERVAL_US: u32 = WATCHDOG_TIMEOUT_US / 2;
 
 // Static beacon allocation
+#[cfg(feature = "primary")]
 static LTB: StaticCell<Mutex<ThreadModeRawMutex, LSTBeacon>> = StaticCell::new();
+#[cfg(feature = "primary")]
 static ESB: StaticCell<Mutex<ThreadModeRawMutex, EPSBeacon>> = StaticCell::new();
+#[cfg(feature = "primary")]
 static HUB: StaticCell<Mutex<ThreadModeRawMutex, HighRateUpperSensorBeacon>> = StaticCell::new();
+#[cfg(feature = "primary")]
 static LUB: StaticCell<Mutex<ThreadModeRawMutex, LowRateUpperSensorBeacon>> = StaticCell::new();
+#[cfg(feature = "primary")]
 static LSB: StaticCell<Mutex<ThreadModeRawMutex, LowerSensorBeacon>> = StaticCell::new();
+
+#[cfg(feature = "secondary")]
+static SLB: StaticCell<Mutex<ThreadModeRawMutex, SecondaryLstBeacon>> = StaticCell::new();
 
 static BL: StaticCell<
     [&'static Mutex<ThreadModeRawMutex, dyn Beacon<Timestamp = u64>>; NUM_RECV_BEC],
@@ -222,17 +239,31 @@ async fn main(spawner: Spawner) {
     let crc = CRC.init(Mutex::new(Crc::new(p.CRC, get_crc_config())));
 
     // -- Beacons
+    #[cfg(feature = "primary")]
     let lst_beacon = LTB.init(Mutex::new(LSTBeacon::new()));
+    #[cfg(feature = "primary")]
     let eps_beacon = ESB.init(Mutex::new(EPSBeacon::new()));
+    #[cfg(feature = "primary")]
     let high_rate_upper_beacon = HUB.init(Mutex::new(HighRateUpperSensorBeacon::new()));
+    #[cfg(feature = "primary")]
     let low_rate_upper_beacon = LUB.init(Mutex::new(LowRateUpperSensorBeacon::new()));
+    #[cfg(feature = "primary")]
     let lower_sensor_beacon = LSB.init(Mutex::new(LowerSensorBeacon::new()));
 
+    #[cfg(feature = "primary")]
     let receivable_beacons = BL.init([
         eps_beacon,
         high_rate_upper_beacon,
         low_rate_upper_beacon,
         lower_sensor_beacon,
+    ]);
+
+    #[cfg(feature = "secondary")]
+    let secondary_lst_beacon = SLB.init(Mutex::new(SecondaryLstBeacon::new()));
+
+    #[cfg(feature = "secondary")]
+    let receivable_beacons = BL.init([
+        secondary_lst_beacon,
     ]);
 
     // lst feedback pins
@@ -259,42 +290,53 @@ async fn main(spawner: Spawner) {
     spawner.must_spawn(io_threads::can_sender_thread(
         can_instance.writer()
     ));
+    #[cfg(feature = "primary")]
     spawner.must_spawn(io_threads::telemetry_thread(lst_beacon, lst_tx, lst_rx));
+
     spawner.must_spawn(cc_mode(cc_rx_pin, cc_rx_led));
     spawner.must_spawn(cc_mode(cc_tx_pin, cc_tx_led));
 
     // LST sender startup
     Timer::after_millis(STARTUP_DELAY).await;
-    spawner.must_spawn(io_threads::lst_sender_thread(
-        LST_BEACON_INTERVAL,
-        lst_beacon,
-        crc,
-        lst_tx,
-    ));
-    spawner.must_spawn(io_threads::lst_sender_thread(
-        EPS_BEACON_INTERVAL,
-        eps_beacon,
-        crc,
-        lst_tx,
-    ));
-    spawner.must_spawn(io_threads::lst_sender_thread(
-        HIGH_RATE_UPPER_BEACON_INTERVAL,
-        high_rate_upper_beacon,
-        crc,
-        lst_tx,
-    ));
-    spawner.must_spawn(io_threads::lst_sender_thread(
-        LOW_RATE_UPPER_BEACON_INTERVAL,
-        low_rate_upper_beacon,
-        crc,
-        lst_tx,
-    ));
-    spawner.must_spawn(io_threads::lst_sender_thread(
-        LOWER_SENSOR_INTERVAL,
-        lower_sensor_beacon,
-        crc,
-        lst_tx,
-    ));
+    #[cfg(feature = "primary")]
+    {
+        spawner.must_spawn(io_threads::lst_sender_thread(
+            LST_BEACON_INTERVAL,
+            lst_beacon,
+            crc,
+            lst_tx,
+        ));
+        spawner.must_spawn(io_threads::lst_sender_thread(
+            EPS_BEACON_INTERVAL,
+            eps_beacon,
+            crc,
+            lst_tx,
+        ));
+        spawner.must_spawn(io_threads::lst_sender_thread(
+            HIGH_RATE_UPPER_BEACON_INTERVAL,
+            high_rate_upper_beacon,
+            crc,
+            lst_tx,
+        ));
+        spawner.must_spawn(io_threads::lst_sender_thread(
+            LOW_RATE_UPPER_BEACON_INTERVAL,
+            low_rate_upper_beacon,
+            crc,
+            lst_tx,
+        ));
+        spawner.must_spawn(io_threads::lst_sender_thread(
+            LOWER_SENSOR_INTERVAL,
+            lower_sensor_beacon,
+            crc,
+            lst_tx,
+        ));
+    }
+    #[cfg(feature = "secondary")]
+    {
+        spawner.must_spawn(io_threads::lst_sender_thread(
+            SECONDARY_LST_BEACON_INTERVAL, secondary_lst_beacon, crc, lst_tx
+        ));
+    }
 
     core::future::pending::<()>().await;
 }

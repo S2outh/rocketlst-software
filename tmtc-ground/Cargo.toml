@@ -4,8 +4,13 @@ version = "0.1.0"
 edition = "2024"
 authors = [ "Eliseo Cailloux" ]
 
-[dependencies]
+[features]
+default = [ "primary" ]
 
+primary = []
+secondary = []
+
+[dependencies]
 embassy-stm32 = { version = "0.5.0", features = [ "defmt", "time", "time-driver-any", "stm32h723vg", "memory-x", "unstable-pac", "exti"]  }
 embassy-sync = { version = "0.7.2", features = ["defmt"] }
 embassy-executor = { version = "0.9.1", features = ["arch-cortex-m", "executor-thread", "defmt"] }
@@ -34,7 +39,6 @@ paste = "1.0.15"
 
 serde = { version = "1.0.228", default-features = false, features = ["alloc", "derive"] }
 minicbor-serde = { version = "0.6.2", features = ["alloc"] }
-serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
 
 [profile.release]
 debug = 2
