@@ -14,15 +14,15 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-RADIOS += rocketlst_ground
-BOOTLOADERS += rocketlst_ground
-rocketlst_ground_DIR := $(dir $(lastword $(MAKEFILE_LIST)))
+RADIOS += rocketlst_air_highrate
+BOOTLOADERS += rocketlst_air_highrate
+rocketlst_air_highrate_DIR := $(dir $(lastword $(MAKEFILE_LIST)))
 
 # Source files
-rocketlst_ground_SRCS := \
-	$(rocketlst_ground_DIR)/board.c
+rocketlst_air_highrate_SRCS := \
+	$(rocketlst_air_highrate_DIR)/board.c
 
-rocketlst_ground_CFLAGS := -DCUSTOM_BOARD_INIT -I$(rocketlst_ground_DIR)
+rocketlst_air_highrate_CFLAGS := -DCUSTOM_BOARD_INIT -I$(rocketlst_air_highrate_DIR)
 
 # Disable UART0 in the bootloader to save space
-rocketlst_ground_BOOTLOADER_CFLAGS := -DUART0_ENABLED=0
+rocketlst_air_highrate_BOOTLOADER_CFLAGS := -DUART0_ENABLED=0

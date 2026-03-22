@@ -118,6 +118,10 @@
 #define RADIO_MODE_RANGING_TX amateur_rf_mode_437_10k_ranging
 #endif
 
+#ifndef RADIO_MODE_CONTINUOUS_TX
+#define RADIO_MODE_CONTINUOUS_TX amateur_rf_mode_continuous_tx_test
+#endif
+
 // Delay between RX_DONE and TX start (in ms by default)
 // TODO: I thought this should be 2 but it works as 3
 // maybe a bug somewhere
@@ -343,7 +347,8 @@
 #ifndef BOARD_RF_SETTINGS
 typedef enum {
   amateur_rf_mode_437_7k_FEC   = 0,  // 437MHz 7k FEC
-  amateur_rf_mode_437_10k_ranging = 1 // 437MHz 10k + 33kHz offset
+  amateur_rf_mode_437_10k_ranging = 1, // 437MHz 10k + 33kHz offset
+  amateur_rf_mode_continuous_tx_test = 2 // no-sync continuous randomized TX stream
 } lst_rf_mode_e;
 #endif
 
