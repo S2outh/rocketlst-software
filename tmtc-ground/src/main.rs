@@ -14,7 +14,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_nats::{self, UserPwdAuthenticator};
 use embassy_net::{Stack, StackResources, dns::DnsQueryType, tcp::{self, TcpSocket}, udp::{PacketMetadata, UdpSocket}, IpEndpoint};
-use embassy_stm32::{Config, bind_interrupts, eth::{self, Ethernet, GenericPhy, PacketQueue, Sma}, mode::Async, peripherals::{ETH, ETH_SMA, IWDG1, RNG, USART2}, rcc, rng::{self, Rng}, usart::{self, Uart, UartTx}, wdg::IndependentWatchdog};
+use embassy_stm32::{Config, bind_interrupts, eth::{self, Ethernet, GenericPhy, PacketQueue, Sma}, mode::Async, peripherals::{ETH, ETH_SMA, IWDG1, RNG, USART3}, rcc, rng::{self, Rng}, usart::{self, Uart, UartTx}, wdg::IndependentWatchdog};
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::{Channel, DynamicReceiver, DynamicSender}};
 use embassy_time::{Duration, Instant, Ticker, Timer, with_timeout};
 use openlst_driver::{lst_receiver::{LSTMessage, LSTReceiver, LSTTelemetry}, lst_sender::{LSTCmd, LSTSender}};
@@ -70,6 +70,9 @@ const TCP_TX_BUF_SIZE: usize = 1024;
 static TCP_TX_BUF: StaticCell<[u8; TCP_TX_BUF_SIZE]> = StaticCell::new();
 
 // mac address. hardcoded for now
+#[cfg(feature = "primary")]
+const MAC_ADDR: [u8; 6] = [0x00, 0x00, 0xB0, 0x0B, 0x50, 0x00];
+#[cfg(feature = "secondary")]
 const MAC_ADDR: [u8; 6] = [0x00, 0x00, 0xDE, 0xAD, 0xBE, 0xEF];
 
 // NATS
@@ -89,8 +92,8 @@ bind_interrupts!(struct Irqs {
     ETH => eth::InterruptHandler;
     RNG => rng::InterruptHandler<RNG>;
 
-    USART2 => usart::InterruptHandler<USART2>;
-    //USART3 => usart::InterruptHandler<USART3>;
+    //USART2 => usart::InterruptHandler<USART2>;
+    USART3 => usart::InterruptHandler<USART3>;
 });
 
 #[derive(Debug)]
@@ -332,23 +335,10 @@ async fn main(spawner: Spawner) {
     let mut uart_config = usart::Config::default();
     uart_config.baudrate = 115200;
     
-    let (uart_tx, uart_rx) = Uart::new(
-        p.USART2,
-        p.PA3,
-        p.PD5,
-        Irqs,
-        p.DMA1_CH1,
-        p.DMA1_CH2,
-        uart_config,
-    )
-    .unwrap()
-    .split();
-
-    
     // let (uart_tx, uart_rx) = Uart::new(
-    //     p.USART3,
-    //     p.PD9,
-    //     p.PB10,
+    //     p.USART2,
+    //     p.PA3,
+    //     p.PD5,
     //     Irqs,
     //     p.DMA1_CH1,
     //     p.DMA1_CH2,
@@ -356,6 +346,19 @@ async fn main(spawner: Spawner) {
     // )
     // .unwrap()
     // .split();
+
+    
+    let (uart_tx, uart_rx) = Uart::new(
+        p.USART3,
+        p.PD9,
+        p.PB10,
+        Irqs,
+        p.DMA1_CH1,
+        p.DMA1_CH2,
+        uart_config,
+    )
+    .unwrap()
+    .split();
 
     let lst_tx = LSTSender::new(uart_tx, OPENLST_HWID);
     let mut lst_rx = LSTReceiver::new(uart_rx.into_ring_buffered(S_RX_BUF.init([0; _])));
