@@ -48,8 +48,16 @@ macro_rules! pub_lst_values {
     ($nats_sender: ident, $lst_telem:ident, $timestamp: ident, ($($field:ident),*)) => {
         paste::paste! {
             $(
-                let serialized = $lst_telem.[<$field: snake>].serialize_ground(&ground_tm_defs::groundstation::lst::$field, $timestamp, &CborSerializer)
+                #[cfg(feature = "primary")]
+                let serialized = $lst_telem.[<$field: snake>]
+                                    .serialize_ground(&ground_tm_defs::groundstation::primary_lst::$field, $timestamp, &CborSerializer)
                                     .expect("could not serialize value");
+
+                #[cfg(feature = "secondary")]
+                let serialized = $lst_telem.[<$field: snake>]
+                                    .serialize_ground(&ground_tm_defs::groundstation::secondary_lst::$field, $timestamp, &CborSerializer)
+                                    .expect("could not serialize value");
+
                 for v in serialized {
                     let _ = $nats_sender.send(v).await;
                 }
