@@ -23,7 +23,7 @@ use south_common::{
 };
 
 /// Request a timesync frame every N seconds
-const TIMESYNC_REQ_ID: u8 = 10;
+const TIMESYNC_REQ_ID: u8 = if cfg!(feature = "primary") { 1 } else { 2 };
 static REQ_TIME: AtomicU64 = AtomicU64::new(0);
 static REQ_ANS_PRIO: AtomicU8 = AtomicU8::new(0);
 static TIME_REF: AtomicU64 = AtomicU64::new(0);
