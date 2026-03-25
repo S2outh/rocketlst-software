@@ -23,7 +23,7 @@ use embassy_stm32::{
 };
 use embassy_time::{Duration, Timer};
 use south_common::{
-    chell::Beacon,
+    chell::{Beacon, ChellDefinition},
     configs::can_config::CanPeriphConfig,
     definitions::{internal_msgs, telemetry as tm}
 };
@@ -195,7 +195,7 @@ async fn main(spawner: Spawner) {
     can_configurator
         .add_receive_topic_range(tm::id_range())
         .unwrap()
-        .add_receive_topic_range(internal_msgs::id_range())
+        .add_receive_topic(internal_msgs::TimesyncAnswer.id())
         .unwrap();
 
     let can_instance = can_configurator.activate(
