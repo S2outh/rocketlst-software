@@ -8,6 +8,7 @@ use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, mutex::Mutex};
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::{
+    dma,
     Config, bind_interrupts,
     can::{self, CanConfigurator, RxFdBuf, TxFdBuf},
     crc::{self, Crc},
@@ -107,6 +108,8 @@ bind_interrupts!(struct Irqs {
 
     USART2 => usart::InterruptHandler<USART2>;
     //USART3 => usart::InterruptHandler<USART3>;
+    DMA1_STREAM1 => dma::InterruptHandler<DMA1_CH1>;
+    DMA1_STREAM2 => dma::InterruptHandler<DMA1_CH2>;
 
     EXTI15_10 => exti::InterruptHandler<EXTI15_10>;
 });
@@ -123,7 +126,7 @@ async fn petter(mut watchdog: IndependentWatchdog<'static, IWDG1>) {
 
 /// CC feedback
 #[embassy_executor::task(pool_size = 2)]
-async fn cc_mode(mut pin: ExtiInput<'static>, mut led: Output<'static>) {
+async fn cc_mode(mut pin: ExtiInput<'static, Async>, mut led: Output<'static>) {
     loop {
         pin.wait_for_any_edge().await;
         led.set_level(pin.get_level());
@@ -212,9 +215,9 @@ async fn main(spawner: Spawner) {
        p.USART2,
        p.PA3,
        p.PD5,
-       Irqs,
        p.DMA1_CH1,
        p.DMA1_CH2,
+       Irqs,
        uart_config,
     )
     .unwrap()
@@ -224,9 +227,9 @@ async fn main(spawner: Spawner) {
     //     p.USART3,
     //     p.PD9,
     //     p.PB10,
-    //     Irqs,
     //     p.DMA1_CH1,
     //     p.DMA1_CH2,
+    //     Irqs,
     //     uart_config,
     // )
     // .unwrap()
@@ -281,61 +284,61 @@ async fn main(spawner: Spawner) {
     // let led = Output::new(p.PE14, Level::Low, Speed::Low);
 
     // Startup
-    spawner.must_spawn(petter(watchdog));
-    spawner.must_spawn(io_threads::can_receiver_thread(
+    spawner.spawn(petter(watchdog).unwrap());
+    spawner.spawn(io_threads::can_receiver_thread(
         receivable_beacons,
         can_instance.reader(),
         can_recv_led,
-    ));
-    spawner.must_spawn(io_threads::can_sender_thread(
+    ).unwrap());
+    spawner.spawn(io_threads::can_sender_thread(
         can_instance.writer()
-    ));
+    ).unwrap());
     #[cfg(feature = "primary")]
-    spawner.must_spawn(io_threads::telemetry_thread(lst_beacon, lst_tx, lst_rx));
+    spawner.spawn(io_threads::telemetry_thread(lst_beacon, lst_tx, lst_rx).unwrap());
 
-    spawner.must_spawn(cc_mode(cc_rx_pin, cc_rx_led));
-    spawner.must_spawn(cc_mode(cc_tx_pin, cc_tx_led));
+    spawner.spawn(cc_mode(cc_rx_pin, cc_rx_led).unwrap());
+    spawner.spawn(cc_mode(cc_tx_pin, cc_tx_led).unwrap());
 
     // LST sender startup
     Timer::after_millis(STARTUP_DELAY).await;
     #[cfg(feature = "primary")]
     {
-        spawner.must_spawn(io_threads::lst_sender_thread(
+        spawner.spawn(io_threads::lst_sender_thread(
             LST_BEACON_INTERVAL,
             lst_beacon,
             crc,
             lst_tx,
-        ));
-        spawner.must_spawn(io_threads::lst_sender_thread(
+        ).unwrap());
+        spawner.spawn(io_threads::lst_sender_thread(
             EPS_BEACON_INTERVAL,
             eps_beacon,
             crc,
             lst_tx,
-        ));
-        spawner.must_spawn(io_threads::lst_sender_thread(
+        ).unwrap());
+        spawner.spawn(io_threads::lst_sender_thread(
             HIGH_RATE_UPPER_BEACON_INTERVAL,
             high_rate_upper_beacon,
             crc,
             lst_tx,
-        ));
-        spawner.must_spawn(io_threads::lst_sender_thread(
+        ).unwrap());
+        spawner.spawn(io_threads::lst_sender_thread(
             LOW_RATE_UPPER_BEACON_INTERVAL,
             low_rate_upper_beacon,
             crc,
             lst_tx,
-        ));
-        spawner.must_spawn(io_threads::lst_sender_thread(
+        ).unwrap());
+        spawner.spawn(io_threads::lst_sender_thread(
             LOWER_SENSOR_INTERVAL,
             lower_sensor_beacon,
             crc,
             lst_tx,
-        ));
+        ).unwrap());
     }
     #[cfg(feature = "secondary")]
     {
-        spawner.must_spawn(io_threads::lst_sender_thread(
+        spawner.spawn(io_threads::lst_sender_thread(
             SECONDARY_LST_BEACON_INTERVAL, secondary_lst_beacon, crc, lst_tx
-        ));
+        ).unwrap());
     }
 
     core::future::pending::<()>().await;

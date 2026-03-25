@@ -14,7 +14,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_nats::{self, UserPwdAuthenticator};
 use embassy_net::{Stack, StackResources, dns::DnsQueryType, tcp::{self, TcpSocket}, udp::{PacketMetadata, UdpSocket}, IpEndpoint};
-use embassy_stm32::{Config, bind_interrupts, eth::{self, Ethernet, GenericPhy, PacketQueue, Sma}, mode::Async, peripherals::{ETH, ETH_SMA, IWDG1, RNG, USART3}, rcc, rng::{self, Rng}, usart::{self, Uart, UartTx}, wdg::IndependentWatchdog};
+use embassy_stm32::{Config, dma, bind_interrupts, eth::{self, Ethernet, GenericPhy, PacketQueue, Sma}, mode::Async, peripherals::{DMA1_CH1, DMA1_CH2, ETH, ETH_SMA, IWDG1, RNG, USART2}, rcc, rng::{self, Rng}, usart::{self, Uart, UartTx}, wdg::IndependentWatchdog};
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::{Channel, DynamicReceiver, DynamicSender}};
 use embassy_time::{Duration, Instant, Ticker, Timer, with_timeout};
 use openlst_driver::{lst_receiver::{LSTMessage, LSTReceiver, LSTTelemetry}, lst_sender::{LSTCmd, LSTSender}};
@@ -92,8 +92,10 @@ bind_interrupts!(struct Irqs {
     ETH => eth::InterruptHandler;
     RNG => rng::InterruptHandler<RNG>;
 
-    //USART2 => usart::InterruptHandler<USART2>;
-    USART3 => usart::InterruptHandler<USART3>;
+    USART2 => usart::InterruptHandler<USART2>;
+    //USART3 => usart::InterruptHandler<USART3>;
+    DMA1_STREAM1 => dma::InterruptHandler<DMA1_CH1>;
+    DMA1_STREAM2 => dma::InterruptHandler<DMA1_CH2>;
 });
 
 #[derive(Debug)]
@@ -335,30 +337,30 @@ async fn main(spawner: Spawner) {
     let mut uart_config = usart::Config::default();
     uart_config.baudrate = 115200;
     
-    // let (uart_tx, uart_rx) = Uart::new(
-    //     p.USART2,
-    //     p.PA3,
-    //     p.PD5,
-    //     Irqs,
-    //     p.DMA1_CH1,
-    //     p.DMA1_CH2,
-    //     uart_config,
-    // )
-    // .unwrap()
-    // .split();
-
-    
     let (uart_tx, uart_rx) = Uart::new(
-        p.USART3,
-        p.PD9,
-        p.PB10,
-        Irqs,
+        p.USART2,
+        p.PA3,
+        p.PD5,
         p.DMA1_CH1,
         p.DMA1_CH2,
+        Irqs,
         uart_config,
     )
     .unwrap()
     .split();
+
+    
+    // let (uart_tx, uart_rx) = Uart::new(
+    //     p.USART3,
+    //     p.PD9,
+    //     p.PB10,
+    //     p.DMA1_CH1,
+    //     p.DMA1_CH2,
+    //     Irqs,
+    //     uart_config,
+    // )
+    // .unwrap()
+    // .split();
 
     let lst_tx = LSTSender::new(uart_tx, OPENLST_HWID);
     let mut lst_rx = LSTReceiver::new(uart_rx.into_ring_buffered(S_RX_BUF.init([0; _])));
@@ -408,10 +410,10 @@ async fn main(spawner: Spawner) {
     let (stack, runner) = embassy_net::new(device, net_cfg, RESOURCES.init(StackResources::new()), seed);
 
     // Launch watchdog task
-    spawner.must_spawn(petter(watchdog));
+    spawner.spawn(petter(watchdog).unwrap());
 
     // Launch network task
-    spawner.must_spawn(net_task(runner));
+    spawner.spawn(net_task(runner).unwrap());
 
     stack.wait_config_up().await;
 
@@ -456,10 +458,10 @@ async fn main(spawner: Spawner) {
     let channel = MSG.init(Channel::new());
 
     // launch local lst periodic telemetry request
-    spawner.must_spawn(telemetry_request_thread(lst_tx));
+    spawner.spawn(telemetry_request_thread(lst_tx).unwrap());
     // launch nats sending thread
-    spawner.must_spawn(sender_task(client, channel.dyn_receiver()));
-    spawner.must_spawn(nats_task(runner));
+    spawner.spawn(sender_task(client, channel.dyn_receiver()).unwrap());
+    spawner.spawn(nats_task(runner).unwrap());
 
     // receiving main loop
     loop {

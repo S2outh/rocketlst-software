@@ -109,7 +109,9 @@ pub async fn lst_sender_thread(
             let bytes = {
                 let mut crc = crc.lock().await;
                 crc.reset();
-                let mut crc_func = |bytes: &[u8]| crc.feed_bytes(bytes) as u16;
+                let mut crc_func = |bytes: &[u8]| {
+                    crc.feed_bytes(bytes); crc.read() as u16
+                };
                 beacon.to_bytes(&mut crc_func)
             };
 
