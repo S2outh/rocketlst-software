@@ -40,6 +40,42 @@ pub async fn can_sender_thread(mut can_sender: BufferedFdCanSender) {
     }
 }
 
+fn update_time_ref(frame: &FdFrame) {
+    match Timesync::read(frame.data()) {
+        Ok((_len, timesync_answer)) => {
+            if timesync_answer.request_id != TIMESYNC_REQ_ID || timesync_answer.priority >= REQ_ANS_PRIO.load(Ordering::Acquire) {
+                return;
+            }
+            REQ_ANS_PRIO.store(timesync_answer.priority, Ordering::Release);
+            let transfer_time = Instant::now().as_micros() - REQ_TIME.load(Ordering::Acquire);
+            let time_ref = timesync_answer.unix_time + transfer_time / 2 - Instant::now().as_micros();
+            info!("Time ref is now {}", time_ref);
+            TIME_REF.store(time_ref, Ordering::Relaxed);
+        },
+        Err(e) => error!("could not read timesync msg {}", Debug2Format(&e)),
+    }
+}
+async fn insert_beacon(
+    beacons: &'static [&'static Mutex<ThreadModeRawMutex, dyn Beacon<Timestamp = u64>>],
+    def: &dyn ChellDefinition,
+    frame: &FdFrame
+) {
+    for beacon in beacons {
+        if let Err(e) = beacon
+            .lock()
+            .await
+            .insert_slice(def, frame.data())
+        {
+            match e {
+                BeaconOperationError::DefNotInBeacon => (),
+                BeaconOperationError::OutOfMemory => {
+                    error!("received incomplete value: {}", def.address());
+                }
+            }
+        }
+    }
+}
+
 /// receive can messages and put them in the corresponding beacons
 #[embassy_executor::task]
 pub async fn can_receiver_thread(
@@ -53,32 +89,16 @@ pub async fn can_receiver_thread(
             Ok(envelope) => {
                 if let embedded_can::Id::Standard(id) = envelope.frame.id() {
                     led.toggle();
-                    if id.as_raw() == internal_msgs::TimesyncAnswer.id() {
-                        if let Ok((_len, timesync_answer)) = Timesync::read(envelope.frame.data()) {
-                            if timesync_answer.request_id != TIMESYNC_REQ_ID || timesync_answer.priority >= REQ_ANS_PRIO.load(Ordering::Acquire) {
-                                continue
-                            }
-                            REQ_ANS_PRIO.store(timesync_answer.priority, Ordering::Release);
-                            let transfer_time = Instant::now().as_micros() - REQ_TIME.load(Ordering::Acquire);
-                            let time_ref = timesync_answer.unix_time + transfer_time / 2 - Instant::now().as_micros();
-                            info!("Time ref is now {}", time_ref);
-                            TIME_REF.store(time_ref, Ordering::Relaxed);
+                    if let Ok(def) = internal_msgs::from_id(id.as_raw()) {
+                        if def.as_any().is::<internal_msgs::TimesyncAnswer>() {
+                            update_time_ref(&envelope.frame);
                         }
-                        continue
                     }
-                    for beacon in beacons {
-                        if let Err(e) = beacon
-                            .lock()
-                            .await
-                            .insert_slice(tm::from_id(id.as_raw()).unwrap(), envelope.frame.data())
-                        {
-                            match e {
-                                BeaconOperationError::DefNotInBeacon => (),
-                                BeaconOperationError::OutOfMemory => {
-                                    error!("received incomplete value: {}", id.as_raw());
-                                }
-                            }
-                        }
+                    else if let Ok(def) = tm::from_id(id.as_raw()) {
+                        insert_beacon(beacons, def, &envelope.frame).await;
+                    }
+                    else {
+                        defmt::unreachable!("id not in any chell def block")
                     }
                 } else {
                     defmt::unreachable!()
