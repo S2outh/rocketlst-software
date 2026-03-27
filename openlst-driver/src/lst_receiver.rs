@@ -36,7 +36,7 @@ pub enum LSTMessage<'a> {
     Telem(LSTTelemetry),
     Ack,
     Nack,
-    Unknown(u8),
+    Unknown(u8, &'a [u8]),
 }
 
 impl<S: Read> LSTReceiver<S> {
@@ -82,7 +82,7 @@ impl<S: Read> LSTReceiver<S> {
                 0x10 => LSTMessage::Ack,
                 0xFF => LSTMessage::Nack,
                 0x18 => LSTMessage::Telem(Self::parse_telem(&msg[1..])?),
-                unknown => LSTMessage::Unknown(*unknown),
+                unknown => LSTMessage::Unknown(*unknown, &msg[1..]),
             },
         )
     }
@@ -136,7 +136,7 @@ impl<S: Read> LSTReceiver<S> {
             DESTINATION_LOCAL => Self::parse_local_msg(&self.buffer[HEADER_LEN..len])?,
             // msg received from other lst
             DESTINATION_RELAY => LSTMessage::Relay(&self.buffer[HEADER_LEN..len]),
-            _ => LSTMessage::Unknown(0x00),
+            _ => LSTMessage::Unknown(0x00, &[]),
         });
     }
 }

@@ -95,7 +95,7 @@ static C_RX_BUF: StaticCell<RxFdBuf<C_RX_BUF_SIZE>> = StaticCell::new();
 static C_TX_BUF: StaticCell<TxFdBuf<C_TX_BUF_SIZE>> = StaticCell::new();
 
 // Static uart buffer
-const S_RX_BUF_SIZE: usize = 256;
+const S_RX_BUF_SIZE: usize = 1024;
 static S_RX_BUF: StaticCell<[u8; S_RX_BUF_SIZE]> = StaticCell::new();
 
 // bin can interrupts

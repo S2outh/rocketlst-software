@@ -12,7 +12,7 @@ use embassy_stm32::{
 };
 use embassy_time::{Duration, Instant, Ticker, with_timeout};
 use openlst_driver::{
-    lst_receiver::{LSTMessage, LSTReceiver},
+    lst_receiver::{LSTMessage, LSTReceiver, LSTTelemetry},
     lst_sender::{LSTCmd, LSTSender},
 };
 use portable_atomic::{AtomicU8, AtomicU64};
@@ -145,6 +145,23 @@ pub async fn lst_sender_thread(
 }
 
 
+async fn wait_for_telem(lst_recv: &mut LSTReceiver<RingBufferedUartRx<'static>>) -> LSTTelemetry {
+    loop {
+        match lst_recv.receive().await {
+            Ok(msg) => match msg {
+                LSTMessage::Telem(tm) => return tm,
+                LSTMessage::Ack => debug!("ack"),
+                LSTMessage::Nack => debug!("nack"),
+                LSTMessage::Unknown(a) => debug!("unknown: {}", a),
+                LSTMessage::Relay(_) => debug!("relay"),
+            },
+            Err(e) => {
+                error!("could not receive from lst: {}", e);
+            }
+        }
+    }
+}
+
 /// access lst telemetry
 #[embassy_executor::task]
 pub async fn telemetry_thread(
@@ -161,29 +178,16 @@ pub async fn telemetry_thread(
             .cmd(LSTCmd::GetTelem)
             .await
             .unwrap_or_else(|e| error!("could not send cmd to lst: {}", e));
-        if let Ok(lst_answer) = with_timeout(LST_TM_TIMEOUT, lst_recv.receive()).await {
-            match lst_answer {
-                Ok(msg) => match msg {
-                    LSTMessage::Telem(tm) => {
-                        debug!("received lst telem msg: {}", tm);
-                        let mut lst_beacon = lst_beacon.lock().await;
-                        lst_beacon.uptime = Some(tm.uptime);
-                        lst_beacon.rssi = Some(tm.rssi);
-                        lst_beacon.lqi = Some(tm.lqi);
-                        lst_beacon.packets_sent = Some(tm.packets_sent);
-                        lst_beacon.packets_good = Some(tm.packets_good);
-                        lst_beacon.packets_rejected_checksum = Some(tm.packets_rejected_checksum);
-                        lst_beacon.packets_rejected_other = Some(tm.packets_rejected_other);
-                    }
-                    LSTMessage::Ack => debug!("ack"),
-                    LSTMessage::Nack => debug!("nack"),
-                    LSTMessage::Unknown(a) => debug!("unknown: {}", a),
-                    LSTMessage::Relay(_) => debug!("relay"),
-                },
-                Err(e) => {
-                    error!("could not receive from lst: {}", e);
-                }
-            }
+        if let Ok(tm) = with_timeout(LST_TM_TIMEOUT, wait_for_telem(&mut lst_recv)).await {
+            debug!("received lst telem msg: {}", tm);
+            let mut lst_beacon = lst_beacon.lock().await;
+            lst_beacon.uptime = Some(tm.uptime);
+            lst_beacon.rssi = Some(tm.rssi);
+            lst_beacon.lqi = Some(tm.lqi);
+            lst_beacon.packets_sent = Some(tm.packets_sent);
+            lst_beacon.packets_good = Some(tm.packets_good);
+            lst_beacon.packets_rejected_checksum = Some(tm.packets_rejected_checksum);
+            lst_beacon.packets_rejected_other = Some(tm.packets_rejected_other);
         } else {
             error!("lst did not answer");
         }
