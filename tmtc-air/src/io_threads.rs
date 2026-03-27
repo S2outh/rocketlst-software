@@ -152,7 +152,7 @@ async fn wait_for_telem(lst_recv: &mut LSTReceiver<RingBufferedUartRx<'static>>)
                 LSTMessage::Telem(tm) => return tm,
                 LSTMessage::Ack => debug!("ack"),
                 LSTMessage::Nack => debug!("nack"),
-                LSTMessage::Unknown(a) => debug!("unknown: {}", a),
+                LSTMessage::Unknown(a, b) => debug!("unknown, cmd: {}, data: {}", a, b),
                 LSTMessage::Relay(_) => debug!("relay"),
             },
             Err(e) => {
@@ -170,7 +170,7 @@ pub async fn telemetry_thread(
     mut lst_recv: LSTReceiver<RingBufferedUartRx<'static>>,
 ) {
     const LST_TM_INTERVAL: Duration = Duration::from_secs(10);
-    const LST_TM_TIMEOUT: Duration = Duration::from_millis(200);
+    const LST_TM_TIMEOUT: Duration = Duration::from_millis(1000);
     let mut ticker = Ticker::every(LST_TM_INTERVAL);
     loop {
         lst.lock()

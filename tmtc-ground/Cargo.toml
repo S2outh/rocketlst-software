@@ -28,9 +28,9 @@ static_cell = { version = "2.1.1", features = ["nightly"] }
 
 embedded-io-async = "0.7.0"
 
-south-common = { git = "https://github.com/S2outh/south-common.git", features = ["ground"] }
+south-common = { features = ["ground"], git = "https://github.com/S2outh/south-common.git" }
 
-openlst-driver = { git = "https://github.com/S2outh/RocketLST-software.git", features = ["defmt"] }
+openlst-driver = { features = ["defmt"], branch = "dev", git = "https://github.com/S2outh/RocketLST-software.git" }
 
 embassy-nats = { git = "https://github.com/S2outh/embassy-nats.git" }
 

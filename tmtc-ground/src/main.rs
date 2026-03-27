@@ -487,7 +487,7 @@ async fn main(spawner: Spawner) {
                     },
                     LSTMessage::Ack => info!("LST Ack"),
                     LSTMessage::Nack => info!("LST Nack"),
-                    LSTMessage::Unknown(a) => info!("LST Unknown: {}", a),
+                    LSTMessage::Unknown(a, _) => info!("LST Unknown: {}", a),
                 }
             },
             Err(e) => {
