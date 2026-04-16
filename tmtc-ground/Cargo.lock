@@ -871,7 +871,7 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 [[package]]
 name = "openlst-driver"
 version = "1.0.0"
-source = "git+https://github.com/S2outh/RocketLST-software.git?branch=dev#fcc0e2999ffcd9b76b293350b58ff5f7e4e3591c"
+source = "git+https://github.com/S2outh/RocketLST-software.git?branch=dev#afa7075a384cf2ff646b376e6f83319e5afc1c2a"
 dependencies = [
  "defmt 1.0.1",
  "embedded-io-async 0.7.0",
@@ -1261,6 +1261,7 @@ dependencies = [
  "embassy-sync",
  "embassy-time",
  "embedded-io-async 0.7.0",
+ "erased-serde",
  "minicbor-serde",
  "openlst-driver",
  "panic-probe",

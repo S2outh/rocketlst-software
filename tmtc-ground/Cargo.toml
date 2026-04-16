@@ -37,6 +37,7 @@ embassy-nats = { git = "https://github.com/S2outh/embassy-nats.git" }
 emballoc = "0.3.0"
 paste = "1.0.15"
 
+erased-serde = { version = "0.4.10", default-features = false, features = ["alloc"] }
 serde = { version = "1.0.228", default-features = false, features = ["alloc", "derive"] }
 minicbor-serde = { version = "0.6.2", features = ["alloc"] }
 

@@ -8,7 +8,7 @@
 mod macros;
 mod ground_tm_defs;
 
-use core::{convert::Infallible, net::SocketAddr};
+use core::net::SocketAddr;
 
 use defmt::*;
 use embassy_executor::Spawner;
@@ -22,7 +22,7 @@ use static_cell::StaticCell;
 
 use {defmt_rtt as _, panic_probe as _};
 
-use south_common::chell::{Beacon, ParseError, ground::{Serializer, SerializableChellValue}};
+use south_common::chell::{Beacon, ParseError, ground::SerializableChellValue};
 
 #[cfg(feature = "primary")]
 use south_common::beacons::{EPSBeacon, HighRateUpperSensorBeacon, LSTBeacon, LowRateUpperSensorBeacon, LowerSensorBeacon};
@@ -146,13 +146,13 @@ fn crc_ccitt(bytes: &[u8]) -> u16 {
     crc
 }
 
-struct CborSerializer;
-impl Serializer for CborSerializer {
-    type Error = minicbor_serde::error::EncodeError<Infallible>;
-    fn serialize_value<T: serde::Serialize>(&self, value: &T)
-        -> Result<alloc::vec::Vec<u8>, Self::Error> {
-        minicbor_serde::to_vec(value)
-    }
+fn cbor_serializer(
+    value: &dyn erased_serde::Serialize,
+) -> Result<alloc::vec::Vec<u8>, erased_serde::Error> {
+    let mut buffer = alloc::vec::Vec::new();
+    let mut serializer = minicbor_serde::Serializer::new(&mut buffer);
+    value.erased_serialize(&mut <dyn erased_serde::Serializer>::erase(&mut serializer))?;
+    Ok(buffer)
 }
 
 /// Watchdog petting task

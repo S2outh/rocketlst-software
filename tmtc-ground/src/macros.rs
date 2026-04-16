@@ -4,7 +4,7 @@ macro_rules! parse_beacon {
         paste::paste! {
             match $beacon.from_bytes($data, &mut crc_ccitt) {
                 Ok(()) => {
-                    info!("{} Received at {}", stringify!([<$beacon:snake:upper>]), $beacon.timestamp);
+                    info!("{} Received at {}", stringify!([<$beacon:snake:upper>]), &$beacon.timestamp);
                     $($(
                         if let Some(value) = $beacon.$field {
                             info!("Telemetry: {}: {:#?}", stringify!($field), defmt::Debug2Format(&value));
@@ -12,7 +12,7 @@ macro_rules! parse_beacon {
                             warn!("No telemetry received for {}", stringify!($field));
                         }
                     )*)?
-                    match $beacon.serialize(&CborSerializer) {
+                    match $beacon.serialize(&cbor_serializer) {
                         Ok(serialized) => {
                             for value in serialized {
                                 let _ = $nats_sender.send(value).await;
@@ -50,12 +50,12 @@ macro_rules! pub_lst_values {
             $(
                 #[cfg(feature = "primary")]
                 let serialized = $lst_telem.[<$field: snake>]
-                                    .serialize_ground(&ground_tm_defs::groundstation::primary_lst::$field, $timestamp, &CborSerializer)
+                                    .serialize_ground(&ground_tm_defs::groundstation::primary_lst::$field, &$timestamp, &cbor_serializer)
                                     .expect("could not serialize value");
 
                 #[cfg(feature = "secondary")]
                 let serialized = $lst_telem.[<$field: snake>]
-                                    .serialize_ground(&ground_tm_defs::groundstation::secondary_lst::$field, $timestamp, &CborSerializer)
+                                    .serialize_ground(&ground_tm_defs::groundstation::secondary_lst::$field, &$timestamp, &cbor_serializer)
                                     .expect("could not serialize value");
 
                 for v in serialized {
