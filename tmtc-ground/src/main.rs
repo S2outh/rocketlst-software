@@ -25,7 +25,7 @@ use {defmt_rtt as _, panic_probe as _};
 use south_common::chell::{Beacon, ParseError, ground::SerializableChellValue};
 
 #[cfg(feature = "primary")]
-use south_common::beacons::{EPSBeacon, HighRateUpperSensorBeacon, LSTBeacon, LowRateUpperSensorBeacon, LowerSensorBeacon};
+use south_common::beacons::{EPSBeacon, HighRateUpperSensorBeacon, LSTBeacon, LowRateUpperSensorBeacon, LowerSensorBeacon, PyroBeacon};
 
 #[cfg(feature = "secondary")]
 use south_common::beacons::SecondaryLstBeacon;
@@ -451,6 +451,8 @@ async fn main(spawner: Spawner) {
     let mut low_rate_upper_beacon = LowRateUpperSensorBeacon::new();
     #[cfg(feature = "primary")]
     let mut lower_sensor_beacon = LowerSensorBeacon::new();
+    #[cfg(feature = "primary")]
+    let mut pyro_beacon = PyroBeacon::new();
 
     #[cfg(feature = "secondary")]
     let mut secondary_lst_beacon = SecondaryLstBeacon::new();
@@ -476,6 +478,7 @@ async fn main(spawner: Spawner) {
                             parse_beacon!(data, high_rate_upper_beacon, channel, (imu1_accel));
                             parse_beacon!(data, low_rate_upper_beacon, channel, (gps_pos));
                             parse_beacon!(data, lower_sensor_beacon, channel);
+                            parse_beacon!(data, pyro_beacon, channel);
                         }
                         #[cfg(feature = "secondary")]
                         {

@@ -29,7 +29,7 @@ use south_common::{
 };
 
 #[cfg(feature = "primary")]
-use south_common::beacons::{EPSBeacon, HighRateUpperSensorBeacon, LSTBeacon, LowRateUpperSensorBeacon, LowerSensorBeacon};
+use south_common::beacons::{EPSBeacon, HighRateUpperSensorBeacon, LSTBeacon, LowRateUpperSensorBeacon, LowerSensorBeacon, PyroBeacon};
 
 #[cfg(feature = "secondary")]
 use south_common::beacons::SecondaryLstBeacon;
@@ -44,7 +44,7 @@ use openlst_driver::lst_sender::LSTSender;
 // General setup stuff
 const STARTUP_DELAY: u64 = 1000;
 const OPENLST_HWID: u16 = 0x2DEC;
-const NUM_RECV_BEC: usize = if cfg!(feature = "primary") { 4 } else { 1 };
+const NUM_RECV_BEC: usize = if cfg!(feature = "primary") { 5 } else { 1 };
 
 #[cfg(feature = "primary")]
 const LST_BEACON_INTERVAL: Duration = Duration::from_secs(3);
@@ -55,7 +55,9 @@ const HIGH_RATE_UPPER_BEACON_INTERVAL: Duration = Duration::from_millis(100);
 #[cfg(feature = "primary")]
 const LOW_RATE_UPPER_BEACON_INTERVAL: Duration = Duration::from_secs(1);
 #[cfg(feature = "primary")]
-const LOWER_SENSOR_INTERVAL: Duration = Duration::from_secs(1);
+const LOWER_SENSOR_BEACON_INTERVAL: Duration = Duration::from_secs(1);
+#[cfg(feature = "primary")]
+const PYRO_BEACON_INTERVAL: Duration = Duration::from_secs(2);
 
 #[cfg(feature = "secondary")]
 const SECONDARY_LST_BEACON_INTERVAL: Duration = Duration::from_secs(3);
@@ -74,6 +76,8 @@ static HUB: StaticCell<Mutex<ThreadModeRawMutex, HighRateUpperSensorBeacon>> = S
 static LUB: StaticCell<Mutex<ThreadModeRawMutex, LowRateUpperSensorBeacon>> = StaticCell::new();
 #[cfg(feature = "primary")]
 static LSB: StaticCell<Mutex<ThreadModeRawMutex, LowerSensorBeacon>> = StaticCell::new();
+#[cfg(feature = "primary")]
+static PYB: StaticCell<Mutex<ThreadModeRawMutex, PyroBeacon>> = StaticCell::new();
 
 #[cfg(feature = "secondary")]
 static SLB: StaticCell<Mutex<ThreadModeRawMutex, SecondaryLstBeacon>> = StaticCell::new();
@@ -252,6 +256,8 @@ async fn main(spawner: Spawner) {
     let low_rate_upper_beacon = LUB.init(Mutex::new(LowRateUpperSensorBeacon::new()));
     #[cfg(feature = "primary")]
     let lower_sensor_beacon = LSB.init(Mutex::new(LowerSensorBeacon::new()));
+    #[cfg(feature = "primary")]
+    let pyro_beacon = PYB.init(Mutex::new(PyroBeacon::new()));
 
     #[cfg(feature = "primary")]
     let receivable_beacons = BL.init([
@@ -259,6 +265,7 @@ async fn main(spawner: Spawner) {
         high_rate_upper_beacon,
         low_rate_upper_beacon,
         lower_sensor_beacon,
+        pyro_beacon
     ]);
 
     #[cfg(feature = "secondary")]
@@ -328,8 +335,14 @@ async fn main(spawner: Spawner) {
             lst_tx,
         ).unwrap());
         spawner.spawn(io_threads::lst_sender_thread(
-            LOWER_SENSOR_INTERVAL,
+            LOWER_SENSOR_BEACON_INTERVAL,
             lower_sensor_beacon,
+            crc,
+            lst_tx,
+        ).unwrap());
+        spawner.spawn(io_threads::lst_sender_thread(
+            PYRO_BEACON_INTERVAL,
+            pyro_beacon,
             crc,
             lst_tx,
         ).unwrap());
