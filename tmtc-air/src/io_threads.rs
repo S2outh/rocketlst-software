@@ -110,7 +110,7 @@ pub async fn can_receiver_thread(
 }
 
 /// send a beacon to the rocketlst with a specific intervall
-#[embassy_executor::task(pool_size = 5)]
+#[embassy_executor::task(pool_size = 6)]
 pub async fn lst_sender_thread(
     send_intervall: Duration,
     beacon: &'static Mutex<ThreadModeRawMutex, dyn Beacon<Timestamp = u64>>,
