@@ -296,7 +296,10 @@ async fn main(spawner: Spawner) {
 
     let mut mac_addr = [0; 6];
     rng.fill_bytes(&mut mac_addr);
+    // make sure mac addr is unicast
+    mac_addr[0] &= !1;
 
+    // Ethernet device setup
     let device = Ethernet::new(
         PACKET_QUEUE.init(PacketQueue::<4, 4>::new()),
         eth_int,
