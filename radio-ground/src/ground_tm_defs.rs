@@ -1,4 +1,3 @@
-
 use south_common::chell::chell_definition;
 
 #[chell_definition(id = 0, address = south_common::chell)]

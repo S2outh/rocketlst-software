@@ -1,12 +1,11 @@
 #![no_std]
 #![no_main]
-
 #![feature(const_trait_impl)]
 #![feature(const_cmp)]
 #![feature(never_type)]
 
-mod macros;
 mod ground_tm_defs;
+mod macros;
 mod timesync;
 
 use core::net::SocketAddr;
@@ -14,11 +13,32 @@ use core::net::SocketAddr;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_nats::{self, UserPwdAuthenticator};
-use embassy_net::{Stack, StackResources, dns::DnsQueryType, tcp::{self, TcpSocket}};
-use embassy_stm32::{Config, dma, bind_interrupts, eth::{self, Ethernet, GenericPhy, PacketQueue, Sma}, mode::Async, peripherals::{DMA1_CH1, DMA1_CH2, ETH, ETH_SMA, IWDG1, RNG, USART2}, rcc, rng::{self, Rng}, usart::{self, Uart, UartTx}, wdg::IndependentWatchdog};
-use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::{Channel, DynamicReceiver, DynamicSender}};
+use embassy_net::{
+    Stack, StackResources,
+    dns::DnsQueryType,
+    tcp::{self, TcpSocket},
+};
+use embassy_stm32::{
+    Config, bind_interrupts,
+    crc::{self, Crc},
+    dma,
+    eth::{self, Ethernet, GenericPhy, PacketQueue, Sma},
+    mode::Async,
+    peripherals::{DMA1_CH1, DMA1_CH2, ETH, ETH_SMA, IWDG1, RNG, USART2},
+    rcc,
+    rng::{self, Rng},
+    usart::{self, Uart, UartTx},
+    wdg::IndependentWatchdog,
+};
+use embassy_sync::{
+    blocking_mutex::raw::ThreadModeRawMutex,
+    channel::{Channel, DynamicReceiver, DynamicSender},
+};
 use embassy_time::{Duration, Ticker, Timer};
-use openlst_driver::{lst_receiver::{LSTMessage, LSTReceiver, LSTTelemetry}, lst_sender::{LSTCmd, LSTSender}};
+use openlst_driver::{
+    lst_receiver::{LSTMessage, LSTReceiver, LSTTelemetry},
+    lst_sender::{LSTCmd, LSTSender},
+};
 use static_cell::StaticCell;
 
 use {defmt_rtt as _, panic_probe as _};
@@ -26,7 +46,10 @@ use {defmt_rtt as _, panic_probe as _};
 use south_common::chell::{Beacon, ParseError, ground::SerializableChellValue};
 
 #[cfg(feature = "primary")]
-use south_common::beacons::{EPSBeacon, HighRateUpperSensorBeacon, LSTBeacon, LowRateUpperSensorBeacon, LowerSensorBeacon, PyroBeacon};
+use south_common::beacons::{
+    EPSBeacon, HighRateUpperSensorBeacon, LSTBeacon, LowRateUpperSensorBeacon, LowerSensorBeacon,
+    PyroBeacon,
+};
 
 #[cfg(feature = "secondary")]
 use south_common::beacons::SecondaryLstBeacon;
@@ -39,7 +62,7 @@ const WATCHDOG_PETTING_INTERVAL_US: u32 = WATCHDOG_TIMEOUT_US / 2;
 const HEAP_KB: usize = 64;
 
 #[global_allocator]
-static ALLOCATOR: emballoc::Allocator<{HEAP_KB * 1024}> = emballoc::Allocator::new();
+static ALLOCATOR: emballoc::Allocator<{ HEAP_KB * 1024 }> = emballoc::Allocator::new();
 extern crate alloc;
 use alloc::{string::String, vec::Vec};
 
@@ -103,11 +126,11 @@ fn get_rcc_config() -> rcc::Config {
     // pll to multiply clock cyclUART1_ENABLEDes
     rcc_config.pll1 = Some(rcc::Pll {
         source: rcc::PllSource::HSI,
-        prediv: rcc::PllPreDiv::DIV8,   // 8 MHz
-        mul: rcc::PllMul::MUL40,        // 320 MHz
-        divp: Some(rcc::PllDiv::DIV2),  // 160 MHz
-        divq: Some(rcc::PllDiv::DIV2),  // 160 MHz
-        divr: Some(rcc::PllDiv::DIV5),  // 64 MHz
+        prediv: rcc::PllPreDiv::DIV8,  // 8 MHz
+        mul: rcc::PllMul::MUL40,       // 320 MHz
+        divp: Some(rcc::PllDiv::DIV2), // 160 MHz
+        divq: Some(rcc::PllDiv::DIV2), // 160 MHz
+        divr: Some(rcc::PllDiv::DIV5), // 64 MHz
     });
     rcc_config.sys = rcc::Sysclk::PLL1_P; // cpu runs with 160 MHz
     rcc_config.mux.fdcansel = rcc::mux::Fdcansel::PLL1_Q; // can runs with 160 MHz
@@ -121,19 +144,16 @@ fn get_rcc_config() -> rcc::Config {
     rcc_config
 }
 
-fn crc_ccitt(bytes: &[u8]) -> u16 {
-    let mut crc: u16 = 0xFFFF;
-    for byte in bytes {
-        crc ^= (*byte as u16) << 8;
-        for _ in 0..8 {
-            if (crc & 0x8000) != 0 {
-                crc = (crc << 1) ^ 0x1021;
-            } else {
-                crc <<= 1;
-            }
-        }
-    }
-    crc
+/// get CRC configuration for crc16_ccitt
+fn get_crc_config() -> crc::Config {
+    crc::Config::new(
+        crc::InputReverseConfig::None,
+        false,
+        crc::PolySize::Width16,
+        0xFFFF,
+        0x1021,
+    )
+    .unwrap()
 }
 
 fn cbor_serializer(
@@ -165,7 +185,10 @@ async fn nats_task(mut runner: embassy_nats::Runner<'static, UserPwdAuthenticato
 }
 
 #[embassy_executor::task]
-async fn sender_task(mut nats_client: embassy_nats::Client<'static>, receiver: DynamicReceiver<'static, SerializedInfo>) {
+async fn sender_task(
+    mut nats_client: embassy_nats::Client<'static>,
+    receiver: DynamicReceiver<'static, SerializedInfo>,
+) {
     loop {
         let (address, bytes) = receiver.receive().await;
         nats_client.publish(String::from(address), bytes).await;
@@ -189,43 +212,50 @@ async fn local_lst_telemetry(
     tm: LSTTelemetry,
     unix_time_offset_us: i64,
 ) {
-
     let timestamp = timesync::current_unix_time_micros(unix_time_offset_us);
 
     info!("Received local lst Telemetry at {}", timestamp);
 
-    print_lst_values!(tm, (
-        Rssi,
-        Lqi,
-        PacketsGood,
-        PacketsRejectedChecksum,
-        PacketsRejectedOther
-    ));
+    print_lst_values!(
+        tm,
+        (
+            Rssi,
+            Lqi,
+            PacketsGood,
+            PacketsRejectedChecksum,
+            PacketsRejectedOther
+        )
+    );
 
-    pub_lst_values!(nats_sender, tm, timestamp, (
-        Uptime,
-        Rssi,
-        Lqi,
-        PacketsSent,
-        PacketsGood,
-        PacketsRejectedChecksum,
-        PacketsRejectedOther
-    ));
+    pub_lst_values!(
+        nats_sender,
+        tm,
+        timestamp,
+        (
+            Uptime,
+            Rssi,
+            Lqi,
+            PacketsSent,
+            PacketsGood,
+            PacketsRejectedChecksum,
+            PacketsRejectedOther
+        )
+    );
 }
 
 pub async fn parse_or_resolve(
-       stack: &Stack<'_>,
-       s: &str,
-   ) -> Result<SocketAddr, embassy_net::dns::Error> {
-   if let Ok(sa) = s.parse::<SocketAddr>() {
-       return Ok(sa);
-   }
+    stack: &Stack<'_>,
+    s: &str,
+) -> Result<SocketAddr, embassy_net::dns::Error> {
+    if let Ok(sa) = s.parse::<SocketAddr>() {
+        return Ok(sa);
+    }
 
-   let ips = stack.dns_query(s, DnsQueryType::A).await?;
-   let Some(ip) = ips.first() else {
-       return Err(embassy_net::dns::Error::Failed);
-   };
-   Ok(SocketAddr::new((*ip).into(), 4222))
+    let ips = stack.dns_query(s, DnsQueryType::A).await?;
+    let Some(ip) = ips.first() else {
+        return Err(embassy_net::dns::Error::Failed);
+    };
+    Ok(SocketAddr::new((*ip).into(), 4222))
 }
 
 #[embassy_executor::main]
@@ -239,11 +269,14 @@ async fn main(spawner: Spawner) {
     let mut watchdog = IndependentWatchdog::new(p.IWDG1, WATCHDOG_TIMEOUT_US);
     watchdog.unleash();
 
+    // CRC setup
+    let mut crc = Crc::new(p.CRC, get_crc_config());
+
     // Initialize UART and LST
     // Lst Uart 0
     let mut uart_config = usart::Config::default();
     uart_config.baudrate = 115200;
-    
+
     let (uart_tx, uart_rx) = Uart::new(
         p.USART2,
         p.PA3,
@@ -256,7 +289,6 @@ async fn main(spawner: Spawner) {
     .unwrap()
     .split();
 
-    
     // let (uart_tx, uart_rx) = Uart::new(
     //     p.USART3,
     //     p.PD9,
@@ -318,10 +350,11 @@ async fn main(spawner: Spawner) {
     );
 
     let net_cfg = embassy_net::Config::dhcpv4(Default::default());
-    
+
     // Initialize network stack
     info!("Initializing network task");
-    let (stack, runner) = embassy_net::new(device, net_cfg, RESOURCES.init(StackResources::new()), seed);
+    let (stack, runner) =
+        embassy_net::new(device, net_cfg, RESOURCES.init(StackResources::new()), seed);
 
     // Launch watchdog task
     spawner.spawn(petter(watchdog).unwrap());
@@ -352,7 +385,8 @@ async fn main(spawner: Spawner) {
     let nats_storage = NATS_STORAGE.init(embassy_nats::Storage::new());
 
     // nats connection
-    let (client, runner) = embassy_nats::new_with_user_pwd("nats", "nats", socket_addr, socket, nats_storage);
+    let (client, runner) =
+        embassy_nats::new_with_user_pwd("nats", "nats", socket_addr, socket, nats_storage);
 
     // Initialize beacons
     #[cfg(feature = "primary")]
@@ -382,30 +416,33 @@ async fn main(spawner: Spawner) {
     // receiving main loop
     loop {
         match lst_rx.receive().await {
-            Ok(msg) => {
-                match msg {
-                    LSTMessage::Relay(data) => {
-                        #[cfg(feature = "primary")]
-                        {
-                            parse_beacon!(data, lst_beacon, channel, (packets_sent));
-                            parse_beacon!(data, eps_beacon, channel, (bat1_voltage));
-                            parse_beacon!(data, high_rate_upper_beacon, channel, (imu1_accel));
-                            parse_beacon!(data, low_rate_upper_beacon, channel, (gps_pos));
-                            parse_beacon!(data, lower_sensor_beacon, channel);
-                            parse_beacon!(data, pyro_beacon, channel);
-                        }
-                        #[cfg(feature = "secondary")]
-                        {
-                            parse_beacon!(data, secondary_lst_beacon, channel);
-                        }
-                    },
-                    LSTMessage::Telem(tm) => {
-                        local_lst_telemetry(&channel.dyn_sender(), tm, unix_time_offset_us).await;
-                    },
-                    LSTMessage::Ack => info!("LST Ack"),
-                    LSTMessage::Nack => info!("LST Nack"),
-                    LSTMessage::Unknown(a, _) => info!("LST Unknown: {}", a),
+            Ok(msg) => match msg {
+                LSTMessage::Relay(data) => {
+                    crc.reset();
+                    let mut crc_func = |bytes: &[u8]| {
+                        crc.feed_bytes(bytes);
+                        crc.read() as u16
+                    };
+                    #[cfg(feature = "primary")]
+                    {
+                        parse_beacon!(data, lst_beacon, crc_func, channel, (packets_sent));
+                        parse_beacon!(data, eps_beacon, crc_func, channel, (bat1_voltage));
+                        parse_beacon!(data, high_rate_upper_beacon, crc_func, channel);
+                        parse_beacon!(data, low_rate_upper_beacon, crc_func, channel, (gps_pos));
+                        parse_beacon!(data, lower_sensor_beacon, crc_func, channel);
+                        parse_beacon!(data, pyro_beacon, crc_func, channel);
+                    }
+                    #[cfg(feature = "secondary")]
+                    {
+                        parse_beacon!(data, secondary_lst_beacon, crc_func, channel);
+                    }
                 }
+                LSTMessage::Telem(tm) => {
+                    local_lst_telemetry(&channel.dyn_sender(), tm, unix_time_offset_us).await;
+                }
+                LSTMessage::Ack => info!("LST Ack"),
+                LSTMessage::Nack => info!("LST Nack"),
+                LSTMessage::Unknown(a, _) => info!("LST Unknown: {}", a),
             },
             Err(e) => {
                 error!("error in receiving frame: {:?}", e);

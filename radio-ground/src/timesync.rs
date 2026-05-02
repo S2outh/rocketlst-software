@@ -1,7 +1,10 @@
 use defmt::{info, warn};
-use embassy_net::{IpEndpoint, Stack, dns::DnsQueryType, udp::{PacketMetadata, UdpSocket}};
+use embassy_net::{
+    IpEndpoint, Stack,
+    dns::DnsQueryType,
+    udp::{PacketMetadata, UdpSocket},
+};
 use embassy_time::{Duration, Instant, Timer, with_timeout};
-
 
 // internet time sync (NTP)
 const NTP_ADDR: &str = "pool.ntp.org";
@@ -31,7 +34,11 @@ fn ntp_packet_to_unix_micros(packet: &[u8]) -> Option<u64> {
 
     let unix_secs = secs - NTP_UNIX_EPOCH_DIFF_SECS;
     let micros_from_frac = (frac * 1_000_000) >> 32;
-    Some(unix_secs.saturating_mul(1_000_000).saturating_add(micros_from_frac))
+    Some(
+        unix_secs
+            .saturating_mul(1_000_000)
+            .saturating_add(micros_from_frac),
+    )
 }
 
 async fn try_sync_internet_time(stack: &Stack<'_>) -> Result<i64, &'static str> {
@@ -55,7 +62,10 @@ async fn try_sync_internet_time(stack: &Stack<'_>) -> Result<i64, &'static str> 
     request[0] = 0x23; // LI=0, VN=4, Mode=3 (client)
 
     let t0 = Instant::now().as_micros();
-    socket.send_to(&request, endpoint).await.map_err(|_| "send")?;
+    socket
+        .send_to(&request, endpoint)
+        .await
+        .map_err(|_| "send")?;
 
     let mut response = [0u8; 48];
     let (len, _src) = with_timeout(Duration::from_secs(3), socket.recv_from(&mut response))

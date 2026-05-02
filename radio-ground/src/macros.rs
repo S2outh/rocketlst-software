@@ -1,8 +1,8 @@
 #[macro_export]
 macro_rules! parse_beacon {
-    ($data: ident, $beacon:ident, $nats_sender:ident $(, ($($field:ident),*))?) => {
+    ($data: ident, $beacon:ident, $crc_func:ident, $nats_sender:ident $(, ($($field:ident),*))?) => {
         paste::paste! {
-            match $beacon.from_bytes($data, &mut crc_ccitt) {
+            match $beacon.from_bytes($data, &mut $crc_func) {
                 Ok(()) => {
                     info!("{} Received at {}", stringify!([<$beacon:snake:upper>]), &$beacon.timestamp);
                     $($(
@@ -32,7 +32,6 @@ macro_rules! parse_beacon {
         }
     }
 }
-
 
 #[macro_export]
 macro_rules! print_lst_values {
