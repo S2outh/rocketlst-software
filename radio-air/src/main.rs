@@ -23,7 +23,7 @@ use embassy_stm32::{
 };
 use embassy_time::{Duration, Timer};
 use south_common::{
-    chell::{Beacon, ChellDefinition, fd_compat_chell_union},
+    chell::{Beacon, ChellDefinition},
     configs::can_config::CanPeriphConfig,
     definitions::{internal_msgs, telemetry as tm},
     gen_obdh_types,
@@ -111,8 +111,7 @@ const S_RX_BUF_SIZE: usize = 1024;
 static S_RX_BUF: StaticCell<[u8; S_RX_BUF_SIZE]> = StaticCell::new();
 
 // placeholder TM Union
-type LstTMContainer = fd_compat_chell_union!(tm::lst);
-gen_obdh_types!(LstTMContainer, Lst, BeaconIngress, LSTCommand);
+gen_obdh_types!(Lst, tm::lst, BeaconIngress, LSTCommand);
 
 // internal messaging channels
 static COM_CHANNELS: LstComChannels =

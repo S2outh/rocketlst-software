@@ -21,7 +21,7 @@ use south_common::{
 };
 
 use crate::{
-    LstCanReceiver, LstCanSender, LstComChannels, LstTCReceiver, LstTMContainer, LstTMSender,
+    LstCanReceiver, LstCanSender, LstComChannels, LstTCReceiver, LstChellUnion, LstTMSender,
 };
 
 pub struct BeaconIngress {
@@ -126,7 +126,7 @@ pub async fn lst_telemetry_thread(
 
             macro_rules! process_tm {
                 ($($val:ident),*) => { paste::paste!{ $(
-                    let container = LstTMContainer::new(&tm::$val, &lst_tm.[<$val: snake>]).unwrap();
+                    let container = LstChellUnion::new(&tm::$val, &lst_tm.[<$val: snake>]).unwrap();
                     tm_sender.send(container).await;
 
                     lst_beacon.[<$val: snake>] = Some(lst_tm.[<$val: snake>]);
