@@ -27,7 +27,6 @@ use south_common::{
     configs::can_config::CanPeriphConfig,
     definitions::{internal_msgs, telemetry as tm},
     gen_obdh_types,
-    obdh::{SouthCanReceiver, SouthCanSender},
     types::LSTCommand,
 };
 
@@ -303,12 +302,12 @@ async fn main(spawner: Spawner) {
     // let led = Output::new(p.PE14, Level::Low, Speed::Low);
 
     // Setup can sender and receiver runners
-    let can_receiver = SouthCanReceiver::new(
+    let can_receiver = LstCanReceiver::new(
         can_instance.reader(),
         &COM_CHANNELS,
         BeaconIngress::new(receivable_beacons),
     );
-    let can_sender = SouthCanSender::new(can_instance.writer(), &COM_CHANNELS);
+    let can_sender = LstCanSender::new(can_instance.writer(), &COM_CHANNELS);
 
     // Startup
     spawner.spawn(petter(watchdog).unwrap());
