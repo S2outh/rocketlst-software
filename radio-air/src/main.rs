@@ -74,20 +74,20 @@ const WATCHDOG_PETTING_INTERVAL_US: u32 = WATCHDOG_TIMEOUT_US / 2;
 
 // Static beacon allocation
 #[cfg(feature = "primary")]
-static LTB: StaticCell<Mutex<ThreadModeRawMutex, LSTBeacon>> = StaticCell::new();
+static LST_BCN: Mutex<ThreadModeRawMutex, LSTBeacon> = Mutex::new(LSTBeacon::new());
 #[cfg(feature = "primary")]
-static ESB: StaticCell<Mutex<ThreadModeRawMutex, EPSBeacon>> = StaticCell::new();
+static EPS_BCN: Mutex<ThreadModeRawMutex, EPSBeacon> = Mutex::new(EPSBeacon::new());
 #[cfg(feature = "primary")]
-static HUB: StaticCell<Mutex<ThreadModeRawMutex, HighRateUpperSensorBeacon>> = StaticCell::new();
+static HIGH_R_UPP_SENS_BCN: Mutex<ThreadModeRawMutex, HighRateUpperSensorBeacon> = Mutex::new(HighRateUpperSensorBeacon::new());
 #[cfg(feature = "primary")]
-static LUB: StaticCell<Mutex<ThreadModeRawMutex, LowRateUpperSensorBeacon>> = StaticCell::new();
+static LOW_R_UPP_SENS_BCN: Mutex<ThreadModeRawMutex, LowRateUpperSensorBeacon> = Mutex::new(LowRateUpperSensorBeacon::new());
 #[cfg(feature = "primary")]
-static LSB: StaticCell<Mutex<ThreadModeRawMutex, LowerSensorBeacon>> = StaticCell::new();
+static LOW_SENS_BCN: Mutex<ThreadModeRawMutex, LowerSensorBeacon> = Mutex::new(LowerSensorBeacon::new());
 #[cfg(feature = "primary")]
-static PYB: StaticCell<Mutex<ThreadModeRawMutex, PyroBeacon>> = StaticCell::new();
+static PYRO_BCN: Mutex<ThreadModeRawMutex, PyroBeacon> = Mutex::new(PyroBeacon::new());
 
 #[cfg(feature = "secondary")]
-static SLB: StaticCell<Mutex<ThreadModeRawMutex, SecondaryLstBeacon>> = StaticCell::new();
+static SEC_BCN: Mutex<ThreadModeRawMutex, SecondaryLstBeacon> = Mutex::new(SecondaryLstBeacon::new());
 
 static BL: StaticCell<
     [&'static Mutex<ThreadModeRawMutex, dyn Beacon<Timestamp = u64>>; NUM_RECV_BEC],
@@ -109,7 +109,7 @@ static C_TX_BUF: StaticCell<TxFdBuf<C_TX_BUF_SIZE>> = StaticCell::new();
 const S_RX_BUF_SIZE: usize = 1024;
 static S_RX_BUF: StaticCell<[u8; S_RX_BUF_SIZE]> = StaticCell::new();
 
-// placeholder TM Union
+// Obdh types
 gen_obdh_types!(Lst, tm::lst, BeaconIngress, LSTCommand);
 
 // internal messaging channels
@@ -201,29 +201,6 @@ async fn main(spawner: Spawner) {
     let mut watchdog = IndependentWatchdog::new(p.IWDG1, WATCHDOG_TIMEOUT_US);
     watchdog.unleash();
 
-    // can 1 configuration
-    let mut can_configurator =
-        CanPeriphConfig::new(CanConfigurator::new(p.FDCAN2, p.PB5, p.PB6, Irqs));
-
-    // can 2 configuration
-    // let mut can_configurator =
-    //     CanPeriphConfig::new(CanConfigurator::new(p.FDCAN1, p.PD0, p.PD1, Irqs));
-
-    can_configurator
-        .add_receive_topic_range(tm::id_range())
-        .unwrap()
-        .add_receive_topic(internal_msgs::TimesyncAnswer.id())
-        .unwrap();
-
-    let can_instance = can_configurator.activate(
-        C_TX_BUF.init(TxFdBuf::<C_TX_BUF_SIZE>::new()),
-        C_RX_BUF.init(RxFdBuf::<C_RX_BUF_SIZE>::new()),
-    );
-
-    // set can standby pin to low
-    let _can_1_standby = Output::new(p.PB7, Level::Low, Speed::Low);
-    // let _can_2_standby = Output::new(p.PD7, Level::Low, Speed::Low);
-
     // -- Uart configuration
     let mut uart_config = usart::Config::default();
     uart_config.baudrate = 115200;
@@ -255,38 +232,6 @@ async fn main(spawner: Spawner) {
     let lst_tx = LST.init(Mutex::new(LSTSender::new(uart_tx, OPENLST_HWID)));
     let lst_rx = LSTReceiver::new(uart_rx.into_ring_buffered(S_RX_BUF.init([0; _])));
 
-    // -- CRC setup
-    let crc = CRC.init(Mutex::new(Crc::new(p.CRC, get_crc_config())));
-
-    // -- Beacons
-    #[cfg(feature = "primary")]
-    let lst_beacon = LTB.init(Mutex::new(LSTBeacon::new()));
-    #[cfg(feature = "primary")]
-    let eps_beacon = ESB.init(Mutex::new(EPSBeacon::new()));
-    #[cfg(feature = "primary")]
-    let high_rate_upper_beacon = HUB.init(Mutex::new(HighRateUpperSensorBeacon::new()));
-    #[cfg(feature = "primary")]
-    let low_rate_upper_beacon = LUB.init(Mutex::new(LowRateUpperSensorBeacon::new()));
-    #[cfg(feature = "primary")]
-    let lower_sensor_beacon = LSB.init(Mutex::new(LowerSensorBeacon::new()));
-    #[cfg(feature = "primary")]
-    let pyro_beacon = PYB.init(Mutex::new(PyroBeacon::new()));
-
-    #[cfg(feature = "primary")]
-    let receivable_beacons = BL.init([
-        eps_beacon,
-        high_rate_upper_beacon,
-        low_rate_upper_beacon,
-        lower_sensor_beacon,
-        pyro_beacon,
-    ]);
-
-    #[cfg(feature = "secondary")]
-    let secondary_lst_beacon = SLB.init(Mutex::new(SecondaryLstBeacon::new()));
-
-    #[cfg(feature = "secondary")]
-    let receivable_beacons = BL.init([secondary_lst_beacon]);
-
     // lst feedback pins
     let cc_rx_pin = ExtiInput::new(p.PD14, p.EXTI14, Pull::None, Irqs);
     let cc_tx_pin = ExtiInput::new(p.PD13, p.EXTI13, Pull::None, Irqs);
@@ -301,6 +246,41 @@ async fn main(spawner: Spawner) {
     // let led = Output::new(p.PE13, Level::Low, Speed::Low);
     // let led = Output::new(p.PE14, Level::Low, Speed::Low);
 
+    // CRC setup
+    let crc = CRC.init(Mutex::new(Crc::new(p.CRC, get_crc_config())));
+
+    // initialize receivable beacon lists for can insertion tasks
+    #[cfg(feature = "primary")]
+    let receivable_beacons = BL.init([
+        &EPS_BCN,
+        &HIGH_R_UPP_SENS_BCN,
+        &LOW_R_UPP_SENS_BCN,
+        &LOW_SENS_BCN,
+        &PYRO_BCN,
+    ]);
+
+    #[cfg(feature = "secondary")]
+    let receivable_beacons = BL.init([secondary_lst_beacon]);
+
+    // can 1 configuration
+    let mut can_configurator =
+        CanPeriphConfig::new(CanConfigurator::new(p.FDCAN2, p.PB5, p.PB6, Irqs));
+
+    // can 2 configuration
+    // let mut can_configurator =
+    //     CanPeriphConfig::new(CanConfigurator::new(p.FDCAN1, p.PD0, p.PD1, Irqs));
+
+    can_configurator
+        .add_receive_topic_range(tm::id_range())
+        .unwrap()
+        .add_receive_topic(internal_msgs::TimesyncAnswer.id())
+        .unwrap();
+
+    let can_instance = can_configurator.activate(
+        C_TX_BUF.init(TxFdBuf::<C_TX_BUF_SIZE>::new()),
+        C_RX_BUF.init(RxFdBuf::<C_RX_BUF_SIZE>::new()),
+    );
+
     // Setup can sender and receiver runners
     let can_receiver = LstCanReceiver::new(
         can_instance.reader(),
@@ -308,6 +288,10 @@ async fn main(spawner: Spawner) {
         BeaconIngress::new(receivable_beacons),
     );
     let can_sender = LstCanSender::new(can_instance.writer(), &COM_CHANNELS);
+
+    // set can standby pin to low
+    let _can_1_standby = Output::new(p.PB7, Level::Low, Speed::Low);
+    // let _can_2_standby = Output::new(p.PD7, Level::Low, Speed::Low);
 
     // Startup
     spawner.spawn(petter(watchdog).unwrap());
@@ -317,7 +301,7 @@ async fn main(spawner: Spawner) {
         .spawn(io_threads::command_execution_task(lst_tx, COM_CHANNELS.get_tc_receiver()).unwrap());
     #[cfg(feature = "primary")]
     spawner.spawn(
-        io_threads::lst_telemetry_thread(lst_beacon, lst_tx, lst_rx, COM_CHANNELS.get_tm_sender())
+        io_threads::lst_telemetry_thread(&LST_BCN, lst_tx, lst_rx, COM_CHANNELS.get_tm_sender())
             .unwrap(),
     );
 
@@ -326,82 +310,34 @@ async fn main(spawner: Spawner) {
 
     // LST sender startup
     Timer::after_millis(STARTUP_DELAY).await;
+
+    macro_rules! spawn_beacons {
+        ($(($beacon:ident, $interval:expr),)*) => { $(
+            spawner.spawn(
+                io_threads::lst_sender_thread(
+                    $interval,
+                    &COM_CHANNELS,
+                    &$beacon,
+                    crc,
+                    lst_tx,
+                )
+                .unwrap(),
+            );
+        )* };
+    }
     #[cfg(feature = "primary")]
-    {
-        spawner.spawn(
-            io_threads::lst_sender_thread(
-                LST_BEACON_INTERVAL,
-                &COM_CHANNELS,
-                lst_beacon,
-                crc,
-                lst_tx,
-            )
-            .unwrap(),
-        );
-        spawner.spawn(
-            io_threads::lst_sender_thread(
-                EPS_BEACON_INTERVAL,
-                &COM_CHANNELS,
-                eps_beacon,
-                crc,
-                lst_tx,
-            )
-            .unwrap(),
-        );
-        spawner.spawn(
-            io_threads::lst_sender_thread(
-                HIGH_RATE_UPPER_BEACON_INTERVAL,
-                &COM_CHANNELS,
-                high_rate_upper_beacon,
-                crc,
-                lst_tx,
-            )
-            .unwrap(),
-        );
-        spawner.spawn(
-            io_threads::lst_sender_thread(
-                LOW_RATE_UPPER_BEACON_INTERVAL,
-                &COM_CHANNELS,
-                low_rate_upper_beacon,
-                crc,
-                lst_tx,
-            )
-            .unwrap(),
-        );
-        spawner.spawn(
-            io_threads::lst_sender_thread(
-                LOWER_SENSOR_BEACON_INTERVAL,
-                &COM_CHANNELS,
-                lower_sensor_beacon,
-                crc,
-                lst_tx,
-            )
-            .unwrap(),
-        );
-        spawner.spawn(
-            io_threads::lst_sender_thread(
-                PYRO_BEACON_INTERVAL,
-                &COM_CHANNELS,
-                pyro_beacon,
-                crc,
-                lst_tx,
-            )
-            .unwrap(),
-        );
-    }
+    spawn_beacons!(
+        (LST_BCN, LST_BEACON_INTERVAL),
+        (EPS_BCN, EPS_BEACON_INTERVAL),
+        (HIGH_R_UPP_SENS_BCN, HIGH_RATE_UPPER_BEACON_INTERVAL),
+        (LOW_R_UPP_SENS_BCN, LOW_RATE_UPPER_BEACON_INTERVAL),
+        (LOW_SENS_BCN, LOWER_SENSOR_BEACON_INTERVAL),
+        (PYRO_BCN, PYRO_BEACON_INTERVAL),
+    );
     #[cfg(feature = "secondary")]
-    {
-        spawner.spawn(
-            io_threads::lst_sender_thread(
-                SECONDARY_LST_BEACON_INTERVAL,
-                &COM_CHANNELS,
-                secondary_lst_beacon,
-                crc,
-                lst_tx,
-            )
-            .unwrap(),
-        );
-    }
+    spawn_beacons!(
+        (SEC_BCN, SECONDARY_LST_BEACON_INTERVAL),
+    );
 
     core::future::pending::<()>().await;
 }

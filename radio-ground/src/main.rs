@@ -32,7 +32,7 @@ use embassy_stm32::{
 };
 use embassy_sync::{
     blocking_mutex::raw::ThreadModeRawMutex,
-    channel::{Channel, DynamicReceiver, DynamicSender},
+    channel::{Channel, Receiver},
 };
 use embassy_time::{Duration, Ticker, Timer};
 use openlst_driver::{
@@ -74,8 +74,11 @@ const MSG_CHANNEL_BUF_SIZE: usize = 30;
 
 type SerializedInfo = (&'static str, Vec<u8>);
 
-static MSG: StaticCell<Channel<ThreadModeRawMutex, SerializedInfo, MSG_CHANNEL_BUF_SIZE>> =
-    StaticCell::new();
+type InternalNatsChannel = Channel<ThreadModeRawMutex, SerializedInfo, MSG_CHANNEL_BUF_SIZE>;
+type InternalNatsReceiver = Receiver<'static, ThreadModeRawMutex, SerializedInfo, MSG_CHANNEL_BUF_SIZE>;
+
+static INTERNAL_NATS_CHANNEL: InternalNatsChannel =
+    Channel::new();
 
 // Static uart buffer
 const S_RX_BUF_SIZE: usize = 256;
@@ -94,7 +97,7 @@ const TCP_TX_BUF_SIZE: usize = 1024;
 static TCP_TX_BUF: StaticCell<[u8; TCP_TX_BUF_SIZE]> = StaticCell::new();
 
 // NATS
-static NATS_STORAGE: StaticCell<embassy_nats::Storage> = StaticCell::new();
+static NATS_STORAGE: embassy_nats::Storage = embassy_nats::Storage::new();
 // const NATS_ADDR: &str = "10.42.0.1";
 const NATS_ADDR: &str = "nats.tichygames.de";
 
@@ -187,7 +190,7 @@ async fn nats_task(mut runner: embassy_nats::Runner<'static, UserPwdAuthenticato
 #[embassy_executor::task]
 async fn sender_task(
     mut nats_client: embassy_nats::Client<'static>,
-    receiver: DynamicReceiver<'static, SerializedInfo>,
+    receiver: InternalNatsReceiver,
 ) {
     loop {
         let (address, bytes) = receiver.receive().await;
@@ -208,7 +211,7 @@ async fn telemetry_request_thread(mut lst_sender: LSTSender<UartTx<'static, Asyn
 }
 
 async fn local_lst_telemetry(
-    nats_sender: &DynamicSender<'static, SerializedInfo>,
+    nats_sender: &InternalNatsChannel,
     tm: LSTTelemetry,
     unix_time_offset_us: i64,
 ) {
@@ -382,11 +385,9 @@ async fn main(spawner: Spawner) {
         }
     };
 
-    let nats_storage = NATS_STORAGE.init(embassy_nats::Storage::new());
-
     // nats connection
     let (client, runner) =
-        embassy_nats::new_with_user_pwd("nats", "nats", socket_addr, socket, nats_storage);
+        embassy_nats::new_with_user_pwd("nats", "nats", socket_addr, socket, &NATS_STORAGE);
 
     // Initialize beacons
     #[cfg(feature = "primary")]
@@ -405,12 +406,10 @@ async fn main(spawner: Spawner) {
     #[cfg(feature = "secondary")]
     let mut secondary_lst_beacon = SecondaryLstBeacon::new();
 
-    let channel = MSG.init(Channel::new());
-
     // launch local lst periodic telemetry request
     spawner.spawn(telemetry_request_thread(lst_tx).unwrap());
     // launch nats sending thread
-    spawner.spawn(sender_task(client, channel.dyn_receiver()).unwrap());
+    spawner.spawn(sender_task(client, INTERNAL_NATS_CHANNEL.receiver()).unwrap());
     spawner.spawn(nats_task(runner).unwrap());
 
     // receiving main loop
@@ -425,12 +424,12 @@ async fn main(spawner: Spawner) {
                     };
                     #[cfg(feature = "primary")]
                     {
-                        parse_beacon!(data, lst_beacon, crc_func, channel, (packets_sent));
-                        parse_beacon!(data, eps_beacon, crc_func, channel, (bat1_voltage));
-                        parse_beacon!(data, high_rate_upper_beacon, crc_func, channel);
-                        parse_beacon!(data, low_rate_upper_beacon, crc_func, channel, (gps_pos));
-                        parse_beacon!(data, lower_sensor_beacon, crc_func, channel);
-                        parse_beacon!(data, pyro_beacon, crc_func, channel);
+                        parse_beacon!(data, lst_beacon, crc_func, INTERNAL_NATS_CHANNEL, (packets_sent));
+                        parse_beacon!(data, eps_beacon, crc_func, INTERNAL_NATS_CHANNEL, (bat1_voltage));
+                        parse_beacon!(data, high_rate_upper_beacon, crc_func, INTERNAL_NATS_CHANNEL);
+                        parse_beacon!(data, low_rate_upper_beacon, crc_func, INTERNAL_NATS_CHANNEL, (gps_pos));
+                        parse_beacon!(data, lower_sensor_beacon, crc_func, INTERNAL_NATS_CHANNEL);
+                        parse_beacon!(data, pyro_beacon, crc_func, INTERNAL_NATS_CHANNEL);
                     }
                     #[cfg(feature = "secondary")]
                     {
@@ -438,7 +437,7 @@ async fn main(spawner: Spawner) {
                     }
                 }
                 LSTMessage::Telem(tm) => {
-                    local_lst_telemetry(&channel.dyn_sender(), tm, unix_time_offset_us).await;
+                    local_lst_telemetry(&INTERNAL_NATS_CHANNEL, tm, unix_time_offset_us).await;
                 }
                 LSTMessage::Ack => info!("LST Ack"),
                 LSTMessage::Nack => info!("LST Nack"),
