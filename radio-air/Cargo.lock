@@ -749,7 +749,7 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 [[package]]
 name = "openlst-driver"
 version = "1.0.0"
-source = "git+ssh://git@github.com/S2outh/rocketlst-software.git?branch=dev#01ea4194aadeacffd4d9e89cd8d089f30a1e39cc"
+source = "git+ssh://git@github.com/S2outh/rocketlst-software.git?branch=dev#233abeada8897022d5dad335f10973a33bc58e60"
 dependencies = [
  "defmt 1.0.1",
  "embedded-io-async",
