@@ -14,8 +14,8 @@ macro_rules! parse_beacon {
                     )*)?
                     match $beacon.serialize(&cbor_serializer) {
                         Ok(serialized) => {
-                            for value in serialized {
-                                let _ = $nats_sender.send(value).await;
+                            for v in serialized {
+                                let _ = $nats_sender.publish(v.0.into(), v.1).await;
                             }
                         },
                         Err(_) => error!("could not serialize received value")
@@ -58,7 +58,7 @@ macro_rules! pub_lst_values {
                                     .expect("could not serialize value");
 
                 for v in serialized {
-                    let _ = $nats_sender.send(v).await;
+                    let _ = $nats_sender.publish(v.0.into(), v.1).await;
                 }
             )*
         }

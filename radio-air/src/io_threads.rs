@@ -35,7 +35,7 @@ impl BeaconIngress {
     }
 }
 impl OnTMFunc for BeaconIngress {
-    async fn call(&self, def: &dyn ChellDefinition, envelope: &FdEnvelope) {
+    async fn call(&mut self, def: &dyn ChellDefinition, envelope: &FdEnvelope) {
         for beacon in self.beacons {
             if let Err(e) = beacon.lock().await.insert_slice(def, envelope.frame.data()) {
                 match e {
