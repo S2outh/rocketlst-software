@@ -162,10 +162,11 @@ fn get_rcc_config() -> rcc::Config {
         divq: Some(rcc::PllDiv::DIV2), // 160 MHz
         divr: Some(rcc::PllDiv::DIV5), // 64 MHz
     });
-    rcc_config.sys = rcc::Sysclk::PLL1_P; // cpu runs with 160 MHz
-    rcc_config.mux.fdcansel = rcc::mux::Fdcansel::PLL1_Q; // can runs with 160 MHz
-    rcc_config.voltage_scale = rcc::VoltageScale::Scale1; // voltage scale for max 225 MHz
+    rcc_config.sys = rcc::Sysclk::PLL1_P; // cpu runns with 160 MHz
+    rcc_config.mux.fdcansel = rcc::mux::Fdcansel::PLL1_Q; // can runns with 160 MHz
+    rcc_config.voltage_scale = rcc::VoltageScale::Scale3; // voltage scale for max 170 MHz Pll out
 
+    rcc_config.ahb_pre = rcc::AHBPrescaler::DIV2;  // AHB runns at 80 MHz
     rcc_config.apb1_pre = rcc::APBPrescaler::DIV2; // APB 1-4 all run with 80 MHz
     rcc_config.apb2_pre = rcc::APBPrescaler::DIV2;
     rcc_config.apb3_pre = rcc::APBPrescaler::DIV2;
