@@ -85,9 +85,9 @@ checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 
 [[package]]
 name = "cc"
-version = "1.2.61"
+version = "1.2.62"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d16d90359e986641506914ba71350897565610e87ce0ad9e6f28569db3dd5c6d"
+checksum = "a1dce859f0832a7d088c4f1119888ab94ef4b5d6795d1ce05afb7fe159d79f98"
 dependencies = [
  "find-msvc-tools",
  "shlex",
@@ -855,7 +855,7 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 [[package]]
 name = "openlst-driver"
 version = "1.0.0"
-source = "git+https://github.com/S2outh/RocketLST-software.git?branch=dev#18278a072d49d2e8cca9006ad2fd8ffb72b9e785"
+source = "git+https://github.com/S2outh/RocketLST-software.git?branch=dev#6ad2ea09dfdd59fd21fd987b5abf4a97a8c36e9c"
 dependencies = [
  "defmt 1.0.1",
  "embedded-io-async",
@@ -1129,7 +1129,7 @@ dependencies = [
 [[package]]
 name = "south-common"
 version = "4.0.0"
-source = "git+https://github.com/S2outh/south-common.git#c998afbaf8ed7f3efd04c2607d5d87e0fa4dffab"
+source = "git+https://github.com/S2outh/south-common.git#b2e85f0e939a6da8df528b317c1bebd795929753"
 dependencies = [
  "bitflags 2.11.1",
  "chell",
