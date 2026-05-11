@@ -774,7 +774,7 @@ dependencies = [
 [[package]]
 name = "lsm6dsv32"
 version = "0.1.0"
-source = "git+https://github.com/S2outh/imu-driver.git#c7d6a65f1e1db4d82003c167eeb5f0e1e5f60596"
+source = "git+https://github.com/S2outh/imu-driver.git#03f48a425dbddc78985ccf676ff60d3bbc8992fd"
 
 [[package]]
 name = "managed"
@@ -855,7 +855,7 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 [[package]]
 name = "openlst-driver"
 version = "1.0.0"
-source = "git+https://github.com/S2outh/RocketLST-software.git?branch=dev#6ad2ea09dfdd59fd21fd987b5abf4a97a8c36e9c"
+source = "git+https://github.com/S2outh/RocketLST-software.git?branch=dev#ee2c5846f65c78c5fc24936841ab40c8fa7520ff"
 dependencies = [
  "defmt 1.0.1",
  "embedded-io-async",
@@ -1129,7 +1129,7 @@ dependencies = [
 [[package]]
 name = "south-common"
 version = "4.0.0"
-source = "git+https://github.com/S2outh/south-common.git#b2e85f0e939a6da8df528b317c1bebd795929753"
+source = "git+https://github.com/S2outh/south-common.git#e347cff9d9465f25da71287506cf0ae9e8448bd1"
 dependencies = [
  "bitflags 2.11.1",
  "chell",
