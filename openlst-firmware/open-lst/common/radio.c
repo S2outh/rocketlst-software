@@ -419,6 +419,24 @@ void radio_send_packet(const __xdata command_t* cmd, uint8_t len,
 
 	board_apply_radio_settings(radio_mode_tx);
 
+	if (radio_mode_tx == RADIO_MODE_CONTINUOUS_TX) {
+		#if BOARD_HAS_TX_HOOK == 1
+		board_pre_tx();
+		#endif
+
+		RFIM = RFIM_IM_TXUNF |
+		       RFIM_IM_DONE;
+		RFTXRXIF = 0;
+		RFTXRXIE = 0;
+		RFIF = 0;
+		IEN2 |= IEN2_RFIE;
+
+		rf_mode_tx = 1;
+		RFST = RFST_STX;
+		radio_packets_sent++;
+		return;
+	}
+
 	// Abort any ongoing DMA transaction (RX or TX) on our channel
 	dma_abort(dma_channel_rf);
 

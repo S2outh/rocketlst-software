@@ -1,0 +1,344 @@
+#![no_std]
+#![no_main]
+
+mod io_threads;
+
+use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, mutex::Mutex};
+
+use defmt::info;
+use embassy_executor::Spawner;
+use embassy_stm32::{
+    Config, bind_interrupts,
+    can::{self, CanConfigurator, RxFdBuf, TxFdBuf},
+    crc::{self, Crc},
+    dma,
+    exti::{self, ExtiInput},
+    gpio::{Level, Output, Pull, Speed},
+    interrupt::typelevel::EXTI15_10,
+    mode::Async,
+    peripherals::*,
+    rcc,
+    usart::{self, Uart, UartTx},
+    wdg::IndependentWatchdog,
+};
+use embassy_time::{Duration, Timer};
+use south_common::{
+    chell::{Beacon, ChellDefinition},
+    configs::can_config::CanPeriphConfig,
+    definitions::{internal_msgs, telemetry as tm},
+    gen_obdh_types,
+    types::LSTCommand,
+};
+
+#[cfg(feature = "primary")]
+use south_common::beacons::{
+    EPSBeacon, HighRateUpperSensorBeacon, LSTBeacon, LowRateUpperSensorBeacon, LowerSensorBeacon,
+    PyroBeacon,
+};
+
+#[cfg(feature = "secondary")]
+use south_common::beacons::SecondaryLstBeacon;
+
+use crate::io_threads::BeaconIngress;
+
+use {defmt_rtt as _, panic_probe as _};
+
+use static_cell::StaticCell;
+
+use openlst_driver::lst_receiver::LSTReceiver;
+use openlst_driver::lst_sender::LSTSender;
+
+// General setup stuff
+const STARTUP_DELAY: u64 = 1000;
+const OPENLST_HWID: u16 = 0x2DEC;
+const NUM_RECV_BEC: usize = if cfg!(feature = "primary") { 5 } else { 1 };
+
+#[cfg(feature = "primary")]
+const LST_BEACON_INTERVAL: Duration = Duration::from_secs(3);
+#[cfg(feature = "primary")]
+const EPS_BEACON_INTERVAL: Duration = Duration::from_secs(5);
+#[cfg(feature = "primary")]
+const HIGH_RATE_UPPER_BEACON_INTERVAL: Duration = Duration::from_millis(100);
+#[cfg(feature = "primary")]
+const LOW_RATE_UPPER_BEACON_INTERVAL: Duration = Duration::from_secs(1);
+#[cfg(feature = "primary")]
+const LOWER_SENSOR_BEACON_INTERVAL: Duration = Duration::from_secs(1);
+#[cfg(feature = "primary")]
+const PYRO_BEACON_INTERVAL: Duration = Duration::from_secs(2);
+
+#[cfg(feature = "secondary")]
+const SECONDARY_LST_BEACON_INTERVAL: Duration = Duration::from_secs(3);
+
+const WATCHDOG_TIMEOUT_US: u32 = 300_000;
+const WATCHDOG_PETTING_INTERVAL_US: u32 = WATCHDOG_TIMEOUT_US / 2;
+
+// Static beacon allocation
+#[cfg(feature = "primary")]
+static LST_BCN: Mutex<ThreadModeRawMutex, LSTBeacon> = Mutex::new(LSTBeacon::new());
+#[cfg(feature = "primary")]
+static EPS_BCN: Mutex<ThreadModeRawMutex, EPSBeacon> = Mutex::new(EPSBeacon::new());
+#[cfg(feature = "primary")]
+static HIGH_R_UPP_SENS_BCN: Mutex<ThreadModeRawMutex, HighRateUpperSensorBeacon> = Mutex::new(HighRateUpperSensorBeacon::new());
+#[cfg(feature = "primary")]
+static LOW_R_UPP_SENS_BCN: Mutex<ThreadModeRawMutex, LowRateUpperSensorBeacon> = Mutex::new(LowRateUpperSensorBeacon::new());
+#[cfg(feature = "primary")]
+static LOW_SENS_BCN: Mutex<ThreadModeRawMutex, LowerSensorBeacon> = Mutex::new(LowerSensorBeacon::new());
+#[cfg(feature = "primary")]
+static PYRO_BCN: Mutex<ThreadModeRawMutex, PyroBeacon> = Mutex::new(PyroBeacon::new());
+
+#[cfg(feature = "secondary")]
+static SEC_BCN: Mutex<ThreadModeRawMutex, SecondaryLstBeacon> = Mutex::new(SecondaryLstBeacon::new());
+
+static BL: StaticCell<
+    [&'static Mutex<ThreadModeRawMutex, dyn Beacon<Timestamp = u64>>; NUM_RECV_BEC],
+> = StaticCell::new();
+
+// Static peripheral allocation
+static LST: StaticCell<Mutex<ThreadModeRawMutex, LSTSender<UartTx<'static, Async>>>> =
+    StaticCell::new();
+static CRC: StaticCell<Mutex<ThreadModeRawMutex, Crc>> = StaticCell::new();
+
+// Static can buffer
+const C_RX_BUF_SIZE: usize = 512;
+const C_TX_BUF_SIZE: usize = 32;
+
+static C_RX_BUF: StaticCell<RxFdBuf<C_RX_BUF_SIZE>> = StaticCell::new();
+static C_TX_BUF: StaticCell<TxFdBuf<C_TX_BUF_SIZE>> = StaticCell::new();
+
+// Static uart buffer
+const S_RX_BUF_SIZE: usize = 1024;
+static S_RX_BUF: StaticCell<[u8; S_RX_BUF_SIZE]> = StaticCell::new();
+
+// Obdh types
+gen_obdh_types!(Lst, tm::lst, BeaconIngress, LSTCommand);
+
+// internal messaging channels
+static COM_CHANNELS: LstComChannels =
+    LstComChannels::new(if cfg!(feature = "primary") { 0 } else { 1 });
+
+// bin can interrupts
+bind_interrupts!(struct Irqs {
+    FDCAN1_IT0 => can::IT0InterruptHandler<FDCAN1>;
+    FDCAN1_IT1 => can::IT1InterruptHandler<FDCAN1>;
+
+    FDCAN2_IT0 => can::IT0InterruptHandler<FDCAN2>;
+    FDCAN2_IT1 => can::IT1InterruptHandler<FDCAN2>;
+
+    USART2 => usart::InterruptHandler<USART2>;
+    //USART3 => usart::InterruptHandler<USART3>;
+    DMA1_STREAM1 => dma::InterruptHandler<DMA1_CH1>;
+    DMA1_STREAM2 => dma::InterruptHandler<DMA1_CH2>;
+
+    EXTI15_10 => exti::InterruptHandler<EXTI15_10>;
+});
+
+/// Watchdog petting task
+#[embassy_executor::task]
+async fn petter(mut watchdog: IndependentWatchdog<'static, IWDG1>) {
+    loop {
+        watchdog.pet();
+        Timer::after_micros(WATCHDOG_PETTING_INTERVAL_US.into()).await;
+    }
+}
+
+/// CC feedback
+#[embassy_executor::task(pool_size = 2)]
+async fn cc_mode(mut pin: ExtiInput<'static, Async>, mut led: Output<'static>) {
+    loop {
+        pin.wait_for_any_edge().await;
+        led.set_level(pin.get_level());
+    }
+}
+
+/// config rcc
+fn get_rcc_config() -> rcc::Config {
+    let mut rcc_config = rcc::Config::default();
+    rcc_config.hsi = Some(rcc::HSIPrescaler::DIV1); // 64 MHz
+    rcc_config.pll1 = Some(rcc::Pll {
+        source: rcc::PllSource::HSI,
+        prediv: rcc::PllPreDiv::DIV8,  // 8 MHz
+        mul: rcc::PllMul::MUL40,       // 320 MHz
+        divp: Some(rcc::PllDiv::DIV2), // 160 MHz
+        divq: Some(rcc::PllDiv::DIV2), // 160 MHz
+        divr: Some(rcc::PllDiv::DIV5), // 64 MHz
+    });
+    rcc_config.sys = rcc::Sysclk::PLL1_P; // cpu runns with 160 MHz
+    rcc_config.mux.fdcansel = rcc::mux::Fdcansel::PLL1_Q; // can runns with 160 MHz
+    rcc_config.voltage_scale = rcc::VoltageScale::Scale3; // voltage scale for max 170 MHz Pll out
+
+    rcc_config.ahb_pre = rcc::AHBPrescaler::DIV2;  // AHB runns at 80 MHz
+    rcc_config.apb1_pre = rcc::APBPrescaler::DIV2; // APB 1-4 all run with 80 MHz
+    rcc_config.apb2_pre = rcc::APBPrescaler::DIV2;
+    rcc_config.apb3_pre = rcc::APBPrescaler::DIV2;
+    rcc_config.apb4_pre = rcc::APBPrescaler::DIV2;
+    rcc_config
+}
+
+/// get CRC configuration for crc16_ccitt
+fn get_crc_config() -> crc::Config {
+    crc::Config::new(
+        crc::InputReverseConfig::None,
+        false,
+        crc::PolySize::Width16,
+        0xFFFF,
+        0x1021,
+    )
+    .unwrap()
+}
+
+/// program entry
+#[embassy_executor::main]
+async fn main(spawner: Spawner) {
+    let mut config = Config::default();
+    config.rcc = get_rcc_config();
+    let p = embassy_stm32::init(config);
+
+    const FW_VERSION: &str = env!("FW_VERSION");
+    const FW_HASH: &str = env!("FW_HASH");
+
+    info!("Launching: FW version={} hash={}", FW_VERSION, FW_HASH);
+
+    // unleash independent watchdog
+    let mut watchdog = IndependentWatchdog::new(p.IWDG1, WATCHDOG_TIMEOUT_US);
+    watchdog.unleash();
+
+    // -- Uart configuration
+    let mut uart_config = usart::Config::default();
+    uart_config.baudrate = 115200;
+
+    let (uart_tx, uart_rx) = Uart::new(
+        p.USART2,
+        p.PA3,
+        p.PD5,
+        p.DMA1_CH1,
+        p.DMA1_CH2,
+        Irqs,
+        uart_config,
+    )
+    .unwrap()
+    .split();
+
+    // let (uart_tx, uart_rx) = Uart::new(
+    //     p.USART3,
+    //     p.PD9,
+    //     p.PB10,
+    //     p.DMA1_CH1,
+    //     p.DMA1_CH2,
+    //     Irqs,
+    //     uart_config,
+    // )
+    // .unwrap()
+    // .split();
+
+    let lst_tx = LST.init(Mutex::new(LSTSender::new(uart_tx, OPENLST_HWID)));
+    let lst_rx = LSTReceiver::new(uart_rx.into_ring_buffered(S_RX_BUF.init([0; _])));
+
+    // lst feedback pins
+    let cc_rx_pin = ExtiInput::new(p.PD14, p.EXTI14, Pull::None, Irqs);
+    let cc_tx_pin = ExtiInput::new(p.PD13, p.EXTI13, Pull::None, Irqs);
+
+    let cc_rx_led = Output::new(p.PE7, Level::Low, Speed::Low);
+    let cc_tx_led = Output::new(p.PE8, Level::Low, Speed::Low);
+
+    // let led = Output::new(p.PE9, Level::Low, Speed::High);
+    // let led = Output::new(p.PE10, Level::Low, Speed::Low);
+    // let led = Output::new(p.PE11, Level::Low, Speed::Low);
+    // let led = Output::new(p.PE12, Level::Low, Speed::Low);
+    // let led = Output::new(p.PE13, Level::Low, Speed::Low);
+    // let led = Output::new(p.PE14, Level::Low, Speed::Low);
+
+    // CRC setup
+    let crc = CRC.init(Mutex::new(Crc::new(p.CRC, get_crc_config())));
+
+    // initialize receivable beacon lists for can insertion tasks
+    #[cfg(feature = "primary")]
+    let receivable_beacons = BL.init([
+        &EPS_BCN,
+        &HIGH_R_UPP_SENS_BCN,
+        &LOW_R_UPP_SENS_BCN,
+        &LOW_SENS_BCN,
+        &PYRO_BCN,
+    ]);
+
+    #[cfg(feature = "secondary")]
+    let receivable_beacons = BL.init([secondary_lst_beacon]);
+
+    // can 1 configuration
+    let mut can_configurator =
+        CanPeriphConfig::new(CanConfigurator::new(p.FDCAN2, p.PB5, p.PB6, Irqs));
+
+    // can 2 configuration
+    // let mut can_configurator =
+    //     CanPeriphConfig::new(CanConfigurator::new(p.FDCAN1, p.PD0, p.PD1, Irqs));
+
+    can_configurator
+        .add_receive_topic_range(tm::id_range())
+        .unwrap()
+        .add_receive_topic(internal_msgs::TimesyncAnswer.id())
+        .unwrap();
+
+    let can_instance = can_configurator.activate(
+        C_TX_BUF.init(TxFdBuf::<C_TX_BUF_SIZE>::new()),
+        C_RX_BUF.init(RxFdBuf::<C_RX_BUF_SIZE>::new()),
+    );
+
+    // Setup can sender and receiver runners
+    let can_receiver = LstCanReceiver::new(
+        can_instance.reader(),
+        &COM_CHANNELS,
+        BeaconIngress::new(receivable_beacons),
+    );
+    let can_sender = LstCanSender::new(can_instance.writer(), &COM_CHANNELS);
+
+    // set can standby pin to low
+    let _can_1_standby = Output::new(p.PB7, Level::Low, Speed::Low);
+    // let _can_2_standby = Output::new(p.PD7, Level::Low, Speed::Low);
+
+    // Startup
+    spawner.spawn(petter(watchdog).unwrap());
+    spawner.spawn(io_threads::can_receiver_task(can_receiver).unwrap());
+    spawner.spawn(io_threads::can_sender_task(can_sender).unwrap());
+    spawner
+        .spawn(io_threads::command_execution_task(lst_tx, COM_CHANNELS.get_tc_receiver()).unwrap());
+    #[cfg(feature = "primary")]
+    spawner.spawn(
+        io_threads::lst_telemetry_thread(&LST_BCN, lst_tx, lst_rx, COM_CHANNELS.get_tm_sender())
+            .unwrap(),
+    );
+
+    spawner.spawn(cc_mode(cc_rx_pin, cc_rx_led).unwrap());
+    spawner.spawn(cc_mode(cc_tx_pin, cc_tx_led).unwrap());
+
+    // LST sender startup
+    Timer::after_millis(STARTUP_DELAY).await;
+
+    macro_rules! spawn_beacons {
+        ($(($beacon:ident, $interval:expr),)*) => { $(
+            spawner.spawn(
+                io_threads::lst_sender_thread(
+                    $interval,
+                    &COM_CHANNELS,
+                    &$beacon,
+                    crc,
+                    lst_tx,
+                )
+                .unwrap(),
+            );
+        )* };
+    }
+    #[cfg(feature = "primary")]
+    spawn_beacons!(
+        (LST_BCN, LST_BEACON_INTERVAL),
+        (EPS_BCN, EPS_BEACON_INTERVAL),
+        (HIGH_R_UPP_SENS_BCN, HIGH_RATE_UPPER_BEACON_INTERVAL),
+        (LOW_R_UPP_SENS_BCN, LOW_RATE_UPPER_BEACON_INTERVAL),
+        (LOW_SENS_BCN, LOWER_SENSOR_BEACON_INTERVAL),
+        (PYRO_BCN, PYRO_BEACON_INTERVAL),
+    );
+    #[cfg(feature = "secondary")]
+    spawn_beacons!(
+        (SEC_BCN, SECONDARY_LST_BEACON_INTERVAL),
+    );
+
+    core::future::pending::<()>().await;
+}

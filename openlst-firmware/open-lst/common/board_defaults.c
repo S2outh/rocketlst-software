@@ -187,6 +187,26 @@ uint8_t board_apply_radio_settings(uint8_t mode) {
 			FREQ1 =     RF_FREQ1;
 			FREQ0 =     RF_FREQ0;
 		break;
+			case amateur_rf_mode_continuous_tx_test:
+				// Continuous randomized TX stream: no sync/preamble framing.
+				PKTCTRL0 =  PKTCTRL0_WHITE_DATA_WHITENING_DISABLED |
+				            PKTCTRL0_PKT_FORMAT_RANDOM |
+				            PKTCTRL0_CRC_DISABLED |
+				            PKTCTRL0_LENGTH_CONFIG_FIXED;
+				MDMCFG2 =   MDMCFG2_DEM_DCFILT_OFF_ENABLE |
+				            MDMCFG2_MOD_FORMAT_GFSK |
+				            MDMCFG2_MANCHESTER_DISABLED |
+				            MDMCFG2_SYNC_MODE_NONE;
+				MCSM1 =     MCSM1_CCA_MODE_RSSI_BELOW_THRESH |
+				            MCSM1_CCA_MODE_UNLESS_RX_PACKET |
+				            MCSM1_TXOFF_MODE_STAY_TX;
+
+				FSCTRL1 =   RF_FSCTRL1;
+				FSCTRL0 =   RF_FSCTRL0;
+				FREQ2 =     RF_FREQ2;
+				FREQ1 =     RF_FREQ1;
+				FREQ0 =     RF_FREQ0;
+			break;
 		#ifndef BOOTLOADER
 		case amateur_rf_mode_437_10k_ranging:
 			// Ranging packets use the same settings except that they

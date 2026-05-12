@@ -14,14 +14,14 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-include radios/rocketlst_air_highrate/Board.mk
-include radios/rocketlst_air_lowrate/Board.mk
-include radios/rocketlst_ground_highrate/Board.mk
-include radios/rocketlst_ground_lowrate/Board.mk
-include open-lst/Build.mk
+RADIOS += rocketlst_ground_lowrate
+rocketlst_ground_lowrate_DIR := $(dir $(lastword $(MAKEFILE_LIST)))
 
-.PHONY: clean
+# Source files
+rocketlst_ground_lowrate_SRCS := \
+	$(rocketlst_ground_lowrate_DIR)/board.c
 
-vagrant: Vagrantfile
-	vagrant up
-	vagrant reload
+rocketlst_ground_lowrate_CFLAGS := -DCUSTOM_BOARD_INIT -I$(rocketlst_ground_lowrate_DIR)
+
+# Disable UART0 in the bootloader to save space
+rocketlst_ground_lowrate_BOOTLOADER_CFLAGS := -DUART0_ENABLED=0

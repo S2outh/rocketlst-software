@@ -23,10 +23,8 @@
 #define CUSTOM_BOARD_INIT 1
 #define BOARD_HAS_TX_HOOK 1
 #define BOARD_HAS_RX_HOOK 1
-#define CONFIG_CAPABLE_RF_RX 0
-#define CONFIG_CAPABLE_RF_TX 1
-#define UART1_DEBUG_PRINTS 1
-#define BOOT_DEBUG_PRINTS 1
+#define CONFIG_CAPABLE_RF_RX 1
+#define CONFIG_CAPABLE_RF_TX 0
 
 // Disable UART0
 // #define UART0_ENABLED 0
@@ -41,14 +39,14 @@
 // https://www.ti.com/lit/ds/symlink/cc1110-cc1111.pdf?ts=1719502976799&ref_url=https%253A%252F%252Fwww.ti.com%252Fproduct%252FCC1110-CC1111%253Fbm-verify%253DAAQAAAAJ_____zIZcrRTZEtbfeo0gPeq_ygxBa76nETJvCLoGOwDVmlBrSts_Urld8DbDGqSqUCw_EW1NzGjBCJ-Iq9NfK6WWA369Xjjv6LITcyj3vj0Y2QV2jGuaTlGqWXEJWYrrTH3KrxpcYW8z3LxiuYmLwWVyGtY5hCujrZCW1z9VLzKT_gLnDblSR8vrklzyaj8tFGUK0W7mdP7z9BMvnwdJIdMj0Q4-9gXi7IFDn2sIa7TOqfen_zbGn-pKgs3SPhH1l51GDau40MP7kL3I00fQVwEq1oHoGAvO4sH-oikEJV32eRFki2A6cGvsJ4
 // Page 207
 //#define RF_PA_CONFIG     0x12 // -30dbm at CC
-//#define RF_PA_CONFIG     0x0E // -20dbm, at CC
+#define RF_PA_CONFIG     0x0E // -20dbm, at CC
 //#define RF_PA_CONFIG     0x1D // -15dbm, at CC
 //#define RF_PA_CONFIG     0x34 // -10dbm, at CC
 //#define RF_PA_CONFIG     0x2C // -5dbm, at CC
 //#define RF_PA_CONFIG     0x60 // 0dbm, at CC
 //#define RF_PA_CONFIG     0x84 // 5dbm, at CC
 //#define RF_PA_CONFIG     0xC8 // 7dbm, at CC
-#define RF_PA_CONFIG     0xC0 // 10dbm, at CC
+//#define RF_PA_CONFIG     0xC0 // 10dbm, at CC
 
 
 // # Frequency setting
@@ -99,9 +97,9 @@
 
 // # Frequency diff between symbols
 //#define RF_DEVIATN_E 1 // 3707 Hz
-#define RF_DEVIATN_E 6 // 126.953125 kHz
+#define RF_DEVIATN_E 6 // 131.8359375 kHz
 //#define RF_DEVIATN_M 1 // 3707 Hz
-#define RF_DEVIATN_M 2 // 126.953125 kHz
+#define RF_DEVIATN_M 2 // 131.8359375 kHz
 
 // Enable the power supply sense lines AN0 and AN1
 #define ADCCFG_CONFIG 0b00000011

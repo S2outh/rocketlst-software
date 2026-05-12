@@ -1,13 +1,19 @@
 [package]
-name = "tmtc-lst-air"
+name = "radio-air"
 version = "1.1.0"
 edition = "2024"
 
+[features]
+default = [ "primary" ]
+
+primary = []
+secondary = []
+
 [dependencies]
-embassy-stm32 = { version = "0.5.0", features = [ "defmt", "time", "time-driver-any", "stm32h723vg", "memory-x", "unstable-pac", "exti"]  }
-embassy-sync = { version = "0.7.2", features = ["defmt"] }
-embassy-executor = { version = "0.9.1", features = ["arch-cortex-m", "executor-thread", "defmt"] }
-embassy-time = { version = "0.5.0", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
+embassy-stm32 = { version = "0.6.0", features = [ "defmt", "time", "time-driver-any", "stm32h723vg", "memory-x", "unstable-pac", "exti"]  }
+embassy-sync = { version = "0.8.0", features = ["defmt"] }
+embassy-executor = { version = "0.10.0", features = ["platform-cortex-m", "executor-thread", "defmt"] }
+embassy-time = { version = "0.5.1", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
 embassy-futures = { version = "0.1.2" }
 
 defmt = "1.0"
@@ -26,7 +32,8 @@ static_cell = "2.1.1"
 
 south-common = { features = ["h7"], git = "ssh://git@github.com/S2outh/south-common.git" }
 
-openlst-driver = { features = ["defmt"], git = "ssh://git@github.com/S2outh/rocketlst-software.git" }
+openlst-driver = { features = ["defmt"], branch = "dev", git = "ssh://git@github.com/S2outh/rocketlst-software.git" }
+paste = "1.0.15"
 #openlst-driver = { features = ["defmt"], path = "../openlst-driver" }
 
 [profile.release]
