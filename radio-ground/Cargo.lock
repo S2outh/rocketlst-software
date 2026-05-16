@@ -357,7 +357,7 @@ dependencies = [
 [[package]]
 name = "embassy-nats"
 version = "0.1.0"
-source = "git+https://github.com/S2outh/embassy-nats.git#e91be43c2b026d11abbe08b0739ec79eaf735442"
+source = "git+https://github.com/S2outh/embassy-nats.git#c9a15e7c6b21affd670afb73b5b7e82c0d308b63"
 dependencies = [
  "cortex-m",
  "cortex-m-rt",
@@ -855,7 +855,7 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 [[package]]
 name = "openlst-driver"
 version = "1.0.0"
-source = "git+https://github.com/S2outh/RocketLST-software.git?branch=dev#b250a8235eafccc05a64ee5e3ab4b262c00ec1ba"
+source = "git+https://github.com/S2outh/RocketLST-software.git?branch=dev#e9e5062b5a9ff0bf7d49c72bc33074bd2d8c735e"
 dependencies = [
  "defmt 1.1.0",
  "embedded-io-async",
@@ -1129,7 +1129,7 @@ dependencies = [
 [[package]]
 name = "south-common"
 version = "4.0.0"
-source = "git+https://github.com/S2outh/south-common.git#e347cff9d9465f25da71287506cf0ae9e8448bd1"
+source = "git+https://github.com/S2outh/south-common.git#f71650b4a153594626044f83fc6af46fafcdf99e"
 dependencies = [
  "bitflags 2.11.1",
  "chell",
